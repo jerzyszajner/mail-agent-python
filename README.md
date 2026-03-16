@@ -7,6 +7,7 @@ The project analyzes email content, assigns a category, and suggests a ready-to-
 
 - email analysis in chat mode (`chat.send_message`)
 - `a` / `analyze` command for a fixed test email with enforced JSON schema output
+- Gmail read-only test script (`gmail_test.py`) for fetching inbox subjects
 - conversation history (`h`)
 - regular chat conversation logging to `mail_log.txt`
 
@@ -35,6 +36,24 @@ GEMINI_API_KEY=your_api_key
 python chat.py
 ```
 
+## Gmail Read-Only Setup
+
+1. Enable Gmail API in Google Cloud.
+2. Configure OAuth consent screen in testing mode.
+3. Add your test account under OAuth test users.
+4. Create OAuth client as **Desktop app** and download `credentials.json`.
+5. Place `credentials.json` in the project root.
+6. Run:
+
+```bash
+python gmail_test.py
+```
+
+Expected result:
+- browser OAuth flow opens once
+- local `token.json` is created
+- terminal prints up to 5 message subjects from `INBOX`
+
 ## App Commands
 
 - `q` / `quit` / `exit` - exit app
@@ -61,3 +80,8 @@ The MVP works locally and is ready for the next step: integration with real inbo
 ## Demo
 
 ![CLI demo](assets/demo-cli.png)
+
+## Security Notes
+
+- `credentials.json` and `token.json` are local-only secret files.
+- They are ignored by git and must never be committed.
