@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import html
 import re
 from typing import Any
@@ -17,7 +18,10 @@ def decode_base64url_data(data: str | None) -> bytes:
     """Decode Gmail ``body.data`` (URL-safe base64, padding optional)."""
     if not data:
         return b""
-    return base64.urlsafe_b64decode(_pad_base64url(data))
+    try:
+        return base64.urlsafe_b64decode(_pad_base64url(data))
+    except (binascii.Error, ValueError):
+        return b""
 
 
 def _base_mime(part: dict[str, Any]) -> str:
@@ -26,22 +30,52 @@ def _base_mime(part: dict[str, Any]) -> str:
 
 
 def _charset_from_part(part: dict[str, Any]) -> str:
-    for h in part.get("headers") or []:
-        if (h.get("name") or "").lower() != "content-type":
-            continue
-        value = h.get("value") or ""
-        m = re.search(r"charset\s*=\s*([\w.-]+)", value, re.I)
+    for value in _header_values(part, "content-type"):
+        m = re.search(r"charset\s*=\s*([^\s;]+)", value, re.I)
         if m:
             return m.group(1).strip("\"'")
     return "utf-8"
 
 
+def _header_values(part: dict[str, Any], name: str) -> list[str]:
+    expected = name.lower()
+    out: list[str] = []
+    for h in part.get("headers") or []:
+        if (h.get("name") or "").lower() == expected:
+            value = h.get("value")
+            if isinstance(value, str) and value.strip():
+                out.append(value.strip())
+    return out
+
+
+def _is_attachment_part(part: dict[str, Any]) -> bool:
+    filename = (part.get("filename") or "").strip()
+    if filename:
+        return True
+
+    for value in _header_values(part, "content-disposition"):
+        lowered = value.lower()
+        if "attachment" in lowered:
+            return True
+    return False
+
+
+def _normalize_text(text: str) -> str:
+    # Keep paragraphs while collapsing noisy whitespace from MIME decoders.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\u0000", "")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _bytes_to_text(data: bytes, part: dict[str, Any]) -> str:
     enc = _charset_from_part(part)
     try:
-        return data.decode(enc)
+        decoded = data.decode(enc)
     except (LookupError, UnicodeDecodeError):
-        return data.decode("utf-8", errors="replace")
+        decoded = data.decode("utf-8", errors="replace")
+    return _normalize_text(decoded)
 
 
 def _strip_html(html_str: str) -> str:
@@ -67,6 +101,9 @@ def _collect_body_parts(
     plain_parts: list[str],
     html_parts: list[str],
 ) -> None:
+    if _is_attachment_part(part):
+        return
+
     mime = _base_mime(part)
     body = part.get("body") or {}
     raw_b64 = body.get("data")
