@@ -20,8 +20,5 @@ token.json
 .cursor/
 .agents/
 
-# Logs
-mail_log.txt
-
 # OS
 .DS_Store
