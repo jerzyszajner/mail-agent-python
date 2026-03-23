@@ -2,42 +2,27 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import pickle
 import sys
-from typing import Any
 
 from dotenv import load_dotenv
-from google import genai
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
-from google.genai import types
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from analysis import analyze_email_block
+from drafts import create_reply_draft
 from gmail_client import decode_full_message_body
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-MODEL_NAME = "gemini-2.5-flash"
-ANALYZE_PROMPT = (
-    "Analyze this email and return classification plus suggested reply. "
-    "Return JSON only. "
-    "Write suggested_reply in the same language as the email content. "
-    "If the message language is mixed or unclear, use the dominant language from Subject and Body."
-)
-
-EMAIL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "category": {"type": "string", "enum": ["urgent", "normal", "spam"]},
-        "urgency": {"type": "string", "enum": ["high", "medium", "low"]},
-        "action": {"type": "string", "enum": ["reply", "forward", "ignore", "mark_read"]},
-        "suggested_reply": {"type": "string"},
-    },
-    "required": ["category", "urgency", "action", "suggested_reply"],
-}
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.compose",
+]
 
 
 def get_gmail_service():
@@ -94,25 +79,7 @@ def message_to_email_text(msg: dict) -> tuple[str, str]:
     return block, body
 
 
-def _validate_model_json(parsed: Any) -> tuple[bool, str]:
-    if not isinstance(parsed, dict):
-        return False, "Expected JSON object."
-    required = ["category", "urgency", "action", "suggested_reply"]
-    missing = [k for k in required if k not in parsed]
-    if missing:
-        return False, f"Missing required fields: {', '.join(missing)}"
-    if parsed["category"] not in {"urgent", "normal", "spam"}:
-        return False, "Invalid value for category."
-    if parsed["urgency"] not in {"high", "medium", "low"}:
-        return False, "Invalid value for urgency."
-    if parsed["action"] not in {"reply", "forward", "ignore", "mark_read"}:
-        return False, "Invalid value for action."
-    if not isinstance(parsed["suggested_reply"], str):
-        return False, "Field suggested_reply must be a string."
-    return True, ""
-
-
-def _fetch_latest_inbox_message(service) -> tuple[dict[str, Any] | None, bool]:
+def _fetch_latest_inbox_message(service) -> tuple[dict | None, bool]:
     try:
         listed = (
             service.users()
@@ -136,7 +103,7 @@ def _fetch_latest_inbox_message(service) -> tuple[dict[str, Any] | None, bool]:
         return None, True
 
 
-def analyze_latest() -> int:
+def analyze_latest(create_draft: bool = False) -> int:
     try:
         service = get_gmail_service()
     except FileNotFoundError:
@@ -157,45 +124,34 @@ def analyze_latest() -> int:
     if not body.strip():
         print("Note: no plain/html body decoded (e.g. attachments only).", file=sys.stderr)
 
-    try:
-        client = genai.Client()
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=f"{ANALYZE_PROMPT}\n\n{email_block}",
-            config=types.GenerateContentConfig(
-                temperature=0.4,
-                max_output_tokens=2000,
-                response_mime_type="application/json",
-                response_json_schema=EMAIL_SCHEMA,
-            ),
-        )
-    except Exception as exc:
-        print(f"Gemini API error: {exc}", file=sys.stderr)
-        return 1
-
-    raw = response.text or ""
-    if not raw.strip():
-        print("Model returned empty response.", file=sys.stderr)
-        return 1
-
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print("Model did not return valid JSON:", exc, file=sys.stderr)
-        print(raw, file=sys.stderr)
-        return 1
-
-    ok, reason = _validate_model_json(parsed)
-    if not ok:
-        print(f"Model JSON does not match expected schema: {reason}", file=sys.stderr)
-        print(raw, file=sys.stderr)
+    parsed, error = analyze_email_block(email_block)
+    if error:
+        print(error, file=sys.stderr)
         return 1
 
     print(json.dumps(parsed, ensure_ascii=False, indent=2))
+
+    if create_draft:
+        draft_id, draft_error = create_reply_draft(service, msg, parsed.get("suggested_reply", ""))
+        if draft_error:
+            return 1
+        print(f"Draft created: {draft_id}", file=sys.stderr)
+
     return 0
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Analyze newest Gmail message with Gemini.")
+    parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="Create a Gmail draft reply from suggested_reply (does not send).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     load_dotenv()
 
     if not (os.environ.get("GEMINI_API_KEY") or "").strip():
@@ -209,7 +165,7 @@ def main() -> int:
         print("Missing credentials.json - add Desktop OAuth client JSON from Google Cloud.", file=sys.stderr)
         return 1
 
-    return analyze_latest()
+    return analyze_latest(create_draft=args.draft)
 
 
 if __name__ == "__main__":

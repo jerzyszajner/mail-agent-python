@@ -6,7 +6,7 @@ Minimal CLI: fetches the **newest** message from Gmail `INBOX`, analyzes it with
 
 - Run only: `python gmail_analyze.py`
 - Reads only the newest email (`maxResults=1`)
-- Does not send emails and does not create drafts
+- Optional: creates a reply draft with `--draft` (never sends automatically)
 - Returns JSON matching a fixed schema
 
 ## Requirements
@@ -37,7 +37,14 @@ GEMINI_API_KEY=your_api_key_here
 python gmail_analyze.py
 ```
 
+Create a Gmail draft reply (safe mode, no sending):
+
+```bash
+python gmail_analyze.py --draft
+```
+
 On first run, a browser will open for OAuth login. The app stores local credentials cache in `token.json` (treat it as a secret).
+If you used an older token from read-only mode, remove `token.json` once to refresh OAuth scopes for draft creation.
 
 ## JSON contract
 
