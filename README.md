@@ -1,22 +1,23 @@
-# Email Agent (Gemini CLI)
+# Mail agent (Gmail + Gemini)
 
-A simple Python CLI agent for email processing using Gemini 2.5 Flash.  
-The project analyzes email content, assigns a category, and suggests a ready-to-send reply.
+A small Python script: loads the **newest** Gmail **INBOX** message, decodes the body, sends it to **Gemini 2.5 Flash**, and prints **JSON** with category, urgency, suggested action, and a draft reply.
 
-## Features
+## Repository layout
 
-- email analysis in chat mode (`chat.send_message`)
-- `a` / `analyze` command for a fixed test email with enforced JSON schema output
-- Gmail read-only test script (`gmail_test.py`) for fetching inbox subjects
-- conversation history (`h`)
-- regular chat conversation logging to `mail_log.txt`
+| File | Role |
+|------|------|
+| `gmail_analyze.py` | Entry point: OAuth when needed, fetch message, call Gemini, print JSON |
+| `gmail_client.py` | Decode bodies from Gmail API (`format=full`, multipart, base64) |
+| `.env.example` | Template for `.env` (copy and fill in your API key) |
 
 ## Requirements
 
 - Python 3.10+
-- Gemini API key in `.env`
+- Gemini key in `.env` (`GEMINI_API_KEY`)
+- Google Cloud project with **Gmail API** enabled, OAuth consent (e.g. testing), your account under **test users**
+- **`credentials.json`** (OAuth client type **Desktop app**) in the project root
 
-## Installation
+## Setup
 
 ```bash
 python -m venv venv
@@ -24,64 +25,56 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Set this value in `.env`:
+Copy the env template and set your real key:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and replace the placeholder with your Gemini API key:
 
 ```env
-GEMINI_API_KEY=your_api_key
+GEMINI_API_KEY=your_api_key_here
 ```
+
+(On Windows: `copy .env.example .env`.)
 
 ## Run
 
 ```bash
-python chat.py
+python gmail_analyze.py
 ```
 
-## Gmail Read-Only Setup
+On first run (or after the token is revoked), a browser opens; sign in with the **Gmail account whose inbox you want to read**. The script writes **`token.json`** (pickled Google credentials - treat it as a secret).
 
-1. Enable Gmail API in Google Cloud.
-2. Configure OAuth consent screen in testing mode.
-3. Add your test account under OAuth test users.
-4. Create OAuth client as **Desktop app** and download `credentials.json`.
-5. Place `credentials.json` in the project root.
-6. Run:
+## What the script does
 
-```bash
-python gmail_test.py
-```
+1. Connects to Gmail API (`gmail.readonly`).
+2. Lists INBOX with `maxResults=1` → **newest** thread.
+3. `messages().get(..., format="full")` → `gmail_client.decode_full_message_body` extracts text (prefers `text/plain`).
+4. Gemini receives From / Subject / Date + body and returns JSON matching a fixed schema.
 
-Expected result:
-- browser OAuth flow opens once
-- local `token.json` is created
-- terminal prints up to 5 message subjects from `INBOX`
+**Note:** the script does **not** send email; it only prints analysis and `suggested_reply` to stdout.
 
-## App Commands
-
-- `q` / `quit` / `exit` - exit app
-- `h` / `history` - show conversation history
-- `a` / `analyze` - run a fixed test email analysis and return JSON
-
-Note: only regular chat messages are appended to `mail_log.txt` in the current version.
-
-## Example Output for `a`
+## Example output (JSON)
 
 ```json
 {
-  "category": "urgent",
-  "urgency": "high",
+  "category": "normal",
+  "urgency": "medium",
   "action": "reply",
-  "suggested_reply": "Thank you for the reminder. I will look into this immediately."
+  "suggested_reply": "Thank you, I will get back to you shortly."
 }
 ```
 
-## Status
+Fields:
 
-The MVP works locally and is ready for the next step: integration with real inboxes (for example, Gmail API).
+- `category`: `urgent` \| `normal` \| `spam`
+- `urgency`: `high` \| `medium` \| `low`
+- `action`: `reply` \| `forward` \| `ignore` \| `mark_read`
+- `suggested_reply`: model-generated reply text
 
-## Demo
+## Security
 
-![CLI demo](assets/demo-cli.png)
-
-## Security Notes
-
-- `credentials.json` and `token.json` are local-only secret files.
-- They are ignored by git and must never be committed.
+- `credentials.json` and `token.json` are local and **must not be committed** (listed in `.gitignore`).
+- Message content is sent to the Gemini API - use accordingly.
