@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import unittest
 
-from gmail_client import decode_full_message_body
+from gmail_client import decode_full_message_body, get_header
 
 
 def _b64url(text: str) -> str:
@@ -62,6 +62,27 @@ class DecodeFullMessageBodyTests(unittest.TestCase):
         body = decode_full_message_body(message)
 
         self.assertEqual(body, "")
+
+
+class GetHeaderTests(unittest.TestCase):
+    def test_finds_existing_header(self) -> None:
+        headers = [{"name": "From", "value": "alice@example.com"}]
+        assert get_header(headers, "From") == "alice@example.com"
+
+    def test_case_insensitive(self) -> None:
+        headers = [{"name": "SUBJECT", "value": "Hello"}]
+        assert get_header(headers, "subject") == "Hello"
+
+    def test_missing_header_returns_empty(self) -> None:
+        headers = [{"name": "From", "value": "alice@example.com"}]
+        assert get_header(headers, "Subject") == ""
+
+    def test_empty_headers_list(self) -> None:
+        assert get_header([], "From") == ""
+
+    def test_none_value_returns_empty(self) -> None:
+        headers = [{"name": "From", "value": None}]
+        assert get_header(headers, "From") == ""
 
 
 if __name__ == "__main__":
