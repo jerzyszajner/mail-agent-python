@@ -9,13 +9,7 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-
-def _header(headers: list[dict], name: str) -> str:
-    name_l = name.lower()
-    for h in headers:
-        if (h.get("name") or "").lower() == name_l:
-            return h.get("value") or ""
-    return ""
+from gmail_client import get_header
 
 
 def _reply_subject(subject: str) -> str:
@@ -26,9 +20,9 @@ def _reply_subject(subject: str) -> str:
 
 def _build_reply_raw_message(msg: dict[str, Any], reply_text: str) -> str:
     headers = (msg.get("payload") or {}).get("headers") or []
-    to_addr = _header(headers, "Reply-To") or _header(headers, "From")
-    subject = _reply_subject(_header(headers, "Subject"))
-    message_id = _header(headers, "Message-ID")
+    to_addr = get_header(headers, "Reply-To") or get_header(headers, "From")
+    subject = _reply_subject(get_header(headers, "Subject"))
+    message_id = get_header(headers, "Message-ID")
 
     mail = EmailMessage()
     if to_addr:

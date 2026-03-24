@@ -78,20 +78,27 @@ def _bytes_to_text(data: bytes, part: dict[str, Any]) -> str:
     return _normalize_text(decoded)
 
 
+_HIDDEN_CSS_RE = re.compile(
+    r"""<[^>]+\bstyle\s*=\s*["'][^"']*"""
+    r"(?:display\s*:\s*none|visibility\s*:\s*hidden"
+    r"|opacity\s*:\s*0(?=[;\s\"'])"
+    r"|font-size\s*:\s*0(?=[;\s\"']))"
+    r"""[^"']*["'][^>]*>.*?</[^>]+>""",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
 def _strip_html(html_str: str) -> str:
-    no_scripts = re.sub(
-        r"<script\b[^>]*>.*?</script>",
-        "",
-        html_str,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    no_styles = re.sub(
-        r"<style\b[^>]*>.*?</style>",
-        "",
-        no_scripts,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
-    text = re.sub(r"<[^>]+>", " ", no_styles)
+    text = re.sub(r"<!--.*?-->", "", html_str, flags=re.DOTALL)
+    for tag in ("script", "style", "noscript"):
+        text = re.sub(
+            rf"<{tag}\b[^>]*>.*?</{tag}>",
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+    text = _HIDDEN_CSS_RE.sub("", text)
+    text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -118,6 +125,15 @@ def _collect_body_parts(
 
     for sub in part.get("parts") or []:
         _collect_body_parts(sub, plain_parts, html_parts)
+
+
+def get_header(headers: list[dict], name: str) -> str:
+    """Return the first header value matching *name* (case-insensitive)."""
+    name_l = name.lower()
+    for h in headers:
+        if (h.get("name") or "").lower() == name_l:
+            return h.get("value") or ""
+    return ""
 
 
 def decode_full_message_body(message: dict[str, Any]) -> str:

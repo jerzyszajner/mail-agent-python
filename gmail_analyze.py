@@ -5,43 +5,65 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import pickle
 import sys
+from typing import Any
 
 from dotenv import load_dotenv
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from analysis import analyze_email_block
+from analysis import AnalysisResult, analyze_email_block, compose_suggested_reply
 from drafts import create_reply_draft
-from gmail_client import decode_full_message_body
+from gmail_client import decode_full_message_body, get_header
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
 ]
+BLOCKED_AUTO_DRAFT_ACTIONS = {"forward", "ignore"}
+MAX_EMAIL_BODY_LEN = 32_000
 
 
-def get_gmail_service():
-    creds = None
-    if os.path.exists("token.json"):
+def _load_cached_credentials() -> Credentials | None:
+    if not os.path.exists("token.json"):
+        return None
+    try:
+        with open("token.json") as f:
+            data = json.load(f)
+        return Credentials.from_authorized_user_info(data, SCOPES)
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
         try:
-            with open("token.json", "rb") as token:
-                creds = pickle.load(token)
-        except (pickle.UnpicklingError, EOFError, AttributeError, ValueError):
-            # Corrupted token cache should not block OAuth re-auth.
-            creds = None
-            try:
-                os.remove("token.json")
-            except OSError:
-                pass
+            os.remove("token.json")
+        except OSError:
+            pass
+        return None
+
+
+def _save_credentials(creds: Credentials) -> None:
+    data = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": list(creds.scopes or []),
+    }
+    fd = os.open("token.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+
+
+def get_gmail_service() -> Any:
+    creds = _load_cached_credentials()
 
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
+            _save_credentials(creds)
         except RefreshError:
             creds = None
             try:
@@ -52,28 +74,21 @@ def get_gmail_service():
     if not creds or not creds.valid:
         flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
         creds = flow.run_local_server(port=0)
-        with open("token.json", "wb") as token:
-            pickle.dump(creds, token)
+        _save_credentials(creds)
 
     return build("gmail", "v1", credentials=creds)
-
-
-def _header(headers: list[dict], name: str) -> str:
-    name_l = name.lower()
-    for h in headers:
-        if (h.get("name") or "").lower() == name_l:
-            return h.get("value") or ""
-    return ""
 
 
 def message_to_email_text(msg: dict) -> tuple[str, str]:
     """Return (prompt block, decoded body) so callers decode the payload once."""
     headers = (msg.get("payload") or {}).get("headers") or []
     body = decode_full_message_body(msg)
+    if len(body) > MAX_EMAIL_BODY_LEN:
+        body = body[:MAX_EMAIL_BODY_LEN]
     block = (
-        f"From: {_header(headers, 'From')}\n"
-        f"Subject: {_header(headers, 'Subject')}\n"
-        f"Date: {_header(headers, 'Date')}\n\n"
+        f"From: {get_header(headers, 'From')}\n"
+        f"Subject: {get_header(headers, 'Subject')}\n"
+        f"Date: {get_header(headers, 'Date')}\n\n"
         f"Body:\n{body}"
     )
     return block, body
@@ -103,6 +118,14 @@ def _fetch_latest_inbox_message(service) -> tuple[dict | None, bool]:
         return None, True
 
 
+def _draft_block_reason(action: str, suspicious_input: bool) -> str | None:
+    if suspicious_input:
+        return "manual review required for suspicious content"
+    if action in BLOCKED_AUTO_DRAFT_ACTIONS:
+        return f"manual review required for action '{action}'"
+    return None
+
+
 def analyze_latest(create_draft: bool = False) -> int:
     try:
         service = get_gmail_service()
@@ -124,15 +147,30 @@ def analyze_latest(create_draft: bool = False) -> int:
     if not body.strip():
         print("Note: no plain/html body decoded (e.g. attachments only).", file=sys.stderr)
 
-    parsed, error = analyze_email_block(email_block)
-    if error:
-        print(error, file=sys.stderr)
+    result = analyze_email_block(email_block, source_body=body)
+    if result.error:
+        print(result.error, file=sys.stderr)
+        if create_draft and result.suspicious:
+            print("Draft blocked: manual review required for suspicious content.", file=sys.stderr)
         return 1
 
-    print(json.dumps(parsed, ensure_ascii=False, indent=2))
+    reply_name = os.environ.get("REPLY_NAME") or ""
+    suggested_reply = compose_suggested_reply(result.parsed, reply_name)
+    output = {
+        "category": result.parsed.get("category"),
+        "urgency": result.parsed.get("urgency"),
+        "action": result.parsed.get("action"),
+        "suggested_reply": suggested_reply,
+    }
+
+    print(json.dumps(output, ensure_ascii=False, indent=2))
 
     if create_draft:
-        draft_id, draft_error = create_reply_draft(service, msg, parsed.get("suggested_reply", ""))
+        block_reason = _draft_block_reason(str(result.parsed.get("action") or ""), suspicious_input=result.suspicious)
+        if block_reason:
+            print(f"Draft blocked: {block_reason}.", file=sys.stderr)
+            return 0
+        draft_id, draft_error = create_reply_draft(service, msg, suggested_reply)
         if draft_error:
             return 1
         print(f"Draft created: {draft_id}", file=sys.stderr)
@@ -164,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
     if not os.path.exists("credentials.json"):
         print("Missing credentials.json - add Desktop OAuth client JSON from Google Cloud.", file=sys.stderr)
         return 1
+
+    if not (os.environ.get("REPLY_NAME") or "").strip():
+        print("Warning: REPLY_NAME is empty; drafts will be created without sender name.", file=sys.stderr)
 
     return analyze_latest(create_draft=args.draft)
 
