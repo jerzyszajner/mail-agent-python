@@ -161,5 +161,86 @@ class InjectionPayloadInHTMLTests(unittest.TestCase):
         assert "Legitimate" in result
 
 
+class MalformedHTMLTests(unittest.TestCase):
+    """Edge cases that regex-based stripping could not handle reliably."""
+
+    def test_unclosed_tags(self) -> None:
+        html = "<p>visible<div>also visible"
+        result = _strip_html(html)
+        assert "visible" in result
+        assert "also visible" in result
+
+    def test_nested_quotes_in_style_attribute(self) -> None:
+        html = """<div style='display:none; font-family:"Arial"'>hidden payload</div><p>safe</p>"""
+        result = _strip_html(html)
+        assert "hidden payload" not in result
+        assert "safe" in result
+
+    def test_double_nested_quotes_in_style(self) -> None:
+        html = '<div style="display:none; font-family:\'Times\'">secret</div><p>ok</p>'
+        result = _strip_html(html)
+        assert "secret" not in result
+        assert "ok" in result
+
+    def test_ie_conditional_comment(self) -> None:
+        html = "<!--[if gte mso 9]><div>hidden injection</div><![endif]--><p>visible</p>"
+        result = _strip_html(html)
+        assert "hidden injection" not in result
+        assert "visible" in result
+
+    def test_deeply_nested_hidden_element(self) -> None:
+        html = (
+            '<table><tr><td><div><span style="display:none">'
+            "deeply nested secret"
+            "</span></div></td></tr></table><p>safe</p>"
+        )
+        result = _strip_html(html)
+        assert "deeply nested secret" not in result
+        assert "safe" in result
+
+    def test_self_closing_tags_preserved(self) -> None:
+        html = "line one<br/>line two<hr/><p>end</p>"
+        result = _strip_html(html)
+        assert "line one" in result
+        assert "line two" in result
+        assert "end" in result
+
+    def test_mixed_case_tags(self) -> None:
+        html = "<SCRIPT>evil()</SCRIPT><P>safe</P>"
+        result = _strip_html(html)
+        assert "evil" not in result
+        assert "safe" in result
+
+    def test_opacity_zero_with_other_properties(self) -> None:
+        html = '<span style="color:red; opacity:0; margin:5px">invisible</span><p>visible</p>'
+        result = _strip_html(html)
+        assert "invisible" not in result
+        assert "visible" in result
+
+    def test_multiple_hidden_techniques_combined(self) -> None:
+        html = (
+            '<div style="display:none">hidden1</div>'
+            '<span style="visibility:hidden">hidden2</span>'
+            '<p style="opacity:0">hidden3</p>'
+            "<!-- hidden4 -->"
+            "<noscript>hidden5</noscript>"
+            "<p>only this is visible</p>"
+        )
+        result = _strip_html(html)
+        for n in range(1, 6):
+            assert f"hidden{n}" not in result
+        assert "only this is visible" in result
+
+    def test_empty_style_attribute_not_removed(self) -> None:
+        html = '<div style="">content here</div>'
+        result = _strip_html(html)
+        assert "content here" in result
+
+    def test_plain_text_passthrough(self) -> None:
+        text = "No HTML at all, just plain text."
+        result = _strip_html(text)
+        assert result == text
+
+
 if __name__ == "__main__":
     unittest.main()

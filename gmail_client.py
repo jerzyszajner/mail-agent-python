@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
-import html
 import re
 from typing import Any
+
+from bs4 import BeautifulSoup, Comment
 
 
 def _pad_base64url(s: str) -> str:
@@ -78,28 +79,24 @@ def _bytes_to_text(data: bytes, part: dict[str, Any]) -> str:
     return _normalize_text(decoded)
 
 
-_HIDDEN_CSS_RE = re.compile(
-    r"""<[^>]+\bstyle\s*=\s*["'][^"']*"""
-    r"(?:display\s*:\s*none|visibility\s*:\s*hidden"
-    r"|opacity\s*:\s*0(?=[;\s\"'])"
-    r"|font-size\s*:\s*0(?=[;\s\"']))"
-    r"""[^"']*["'][^>]*>.*?</[^>]+>""",
-    re.DOTALL | re.IGNORECASE,
+_HIDDEN_STYLE_RE = re.compile(
+    r"display\s*:\s*none|visibility\s*:\s*hidden"
+    r"|opacity\s*:\s*0(?=[;\s\"'\)]|$)"
+    r"|font-size\s*:\s*0(?=[;\s\"'\)]|$)",
+    re.IGNORECASE,
 )
 
 
 def _strip_html(html_str: str) -> str:
-    text = re.sub(r"<!--.*?-->", "", html_str, flags=re.DOTALL)
-    for tag in ("script", "style", "noscript"):
-        text = re.sub(
-            rf"<{tag}\b[^>]*>.*?</{tag}>",
-            "",
-            text,
-            flags=re.DOTALL | re.IGNORECASE,
-        )
-    text = _HIDDEN_CSS_RE.sub("", text)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(text)
+    soup = BeautifulSoup(html_str, "html.parser")
+    for element in soup.find_all(string=lambda t: isinstance(t, Comment)):
+        element.extract()
+    for tag in soup.find_all(["script", "style", "noscript"]):
+        tag.decompose()
+    for tag in soup.find_all(style=True):
+        if _HIDDEN_STYLE_RE.search(tag.get("style", "")):
+            tag.decompose()
+    text = soup.get_text(separator=" ")
     return re.sub(r"\s+", " ", text).strip()
 
 
