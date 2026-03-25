@@ -18,7 +18,11 @@ def _reply_subject(subject: str) -> str:
     return f"Re: {subject}" if subject else "Re:"
 
 
-def _build_reply_raw_message(msg: dict[str, Any], reply_text: str) -> str:
+def _build_reply_raw_message(
+    msg: dict[str, Any],
+    reply_text: str,
+    thread_message_ids: list[str] | None = None,
+) -> str:
     headers = (msg.get("payload") or {}).get("headers") or []
     to_addr = get_header(headers, "Reply-To") or get_header(headers, "From")
     subject = _reply_subject(get_header(headers, "Subject"))
@@ -30,15 +34,20 @@ def _build_reply_raw_message(msg: dict[str, Any], reply_text: str) -> str:
     mail["Subject"] = subject
     if message_id:
         mail["In-Reply-To"] = message_id
-        mail["References"] = message_id
+        mail["References"] = " ".join(thread_message_ids) if thread_message_ids else message_id
     mail.set_content(reply_text or "")
     return base64.urlsafe_b64encode(mail.as_bytes()).decode()
 
 
-def create_reply_draft(service, msg: dict[str, Any], reply_text: str) -> tuple[str | None, bool]:
+def create_reply_draft(
+    service,
+    msg: dict[str, Any],
+    reply_text: str,
+    thread_message_ids: list[str] | None = None,
+) -> tuple[str | None, bool]:
     """Create a Gmail reply draft; returns (draft_id, had_error)."""
     try:
-        raw = _build_reply_raw_message(msg, reply_text)
+        raw = _build_reply_raw_message(msg, reply_text, thread_message_ids)
         body = {
             "message": {
                 "threadId": msg.get("threadId"),
