@@ -66,6 +66,16 @@ On first run, a browser will open for OAuth login. The app stores local credenti
 
 **Upgrading from v1:** remove `token.json` to refresh OAuth scopes (`gmail.modify` replaces the old `gmail.readonly` + `gmail.compose`).
 
+## macOS LaunchAgent (periodic run while logged in)
+
+Optional setup: `launchd` runs `gmail_analyze.py` on an interval while your Mac is awake and you are logged in. **How often** is `StartInterval` in **`launchd/com.jerzy.mail-agent.plist`** (value in **seconds**). **Which flags** (`--max`, `--draft`, `--apply`, …) are in **`ProgramArguments`** in the same file.
+
+```bash
+./scripts/install-launchagent.sh
+```
+
+Copies that plist to `~/Library/LaunchAgents/` and registers the job. After you change the plist in the repo, run the install script again so macOS picks up the update. Stdout/stderr go to `logs/launchd-out.log` and `logs/launchd-err.log`. Unload: `launchctl bootout gui/$(id -u)/com.jerzy.mail-agent`.
+
 ## Action dispatch
 
 | Classification | Gmail action (`--apply`) | Draft? |
