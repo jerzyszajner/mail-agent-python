@@ -20,5 +20,8 @@ token.json
 .cursor/
 .agents/
 
+# Dev notes
+dev-notes/
+
 # OS
 .DS_Store
