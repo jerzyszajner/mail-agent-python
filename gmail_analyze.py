@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import datetime
 import re
 import sys
 from typing import Any
@@ -325,6 +326,11 @@ def analyze_inbox(
     create_draft: bool = False,
     apply: bool = False,
 ) -> int:
+    stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    banner = f"=== gmail_analyze run started {stamp} ==="
+    print(banner, file=sys.stderr)
+    print(banner, flush=True)
+
     try:
         service = get_gmail_service()
     except FileNotFoundError:
