@@ -9,6 +9,7 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
+from draft_cleanup import register_agent_draft
 from gmail_client import get_header
 
 
@@ -55,7 +56,9 @@ def create_reply_draft(
             }
         }
         created = service.users().drafts().create(userId="me", body=body).execute()
-        return created.get("id"), False
+        draft_id = created.get("id")
+        register_agent_draft(service, draft_id, msg.get("threadId"))
+        return draft_id, False
     except HttpError as exc:
         status = exc.resp.status if exc.resp else "?"
         print(f"Gmail API draft error (HTTP {status}): {exc}", file=sys.stderr)
