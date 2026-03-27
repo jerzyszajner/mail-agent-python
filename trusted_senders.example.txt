@@ -1,0 +1,3 @@
+# Copy to trusted_senders.txt — one email per line.
+friend1@example.com
+friend2@example.com
