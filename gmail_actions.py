@@ -8,19 +8,14 @@ from typing import Any
 from googleapiclient.errors import HttpError
 
 
-def mark_as_read(service: Any, msg_id: str) -> tuple[bool, str | None]:
-    """Remove UNREAD label from a message."""
-    return _modify_labels(service, msg_id, remove=["UNREAD"])
-
-
 def archive(service: Any, msg_id: str) -> tuple[bool, str | None]:
-    """Remove from INBOX and mark as read."""
-    return _modify_labels(service, msg_id, remove=["INBOX", "UNREAD"])
+    """Remove INBOX only; leave UNREAD so you still see the thread as new outside Inbox."""
+    return _modify_labels(service, msg_id, remove=["INBOX"])
 
 
 def report_spam(service: Any, msg_id: str) -> tuple[bool, str | None]:
-    """Move to spam folder."""
-    return _modify_labels(service, msg_id, add=["SPAM"], remove=["INBOX", "UNREAD"])
+    """Move to spam; leave UNREAD so Spam still shows as new mail."""
+    return _modify_labels(service, msg_id, add=["SPAM"], remove=["INBOX"])
 
 
 def _modify_labels(
