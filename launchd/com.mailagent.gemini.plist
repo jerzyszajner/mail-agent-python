@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.jerzy.mail-agent</string>
+	<string>com.mailagent.gemini</string>
 	<key>WorkingDirectory</key>
 	<string>/Users/jerzyszajner/Programowanie/ai-lab/mail-agent-python</string>
 	<key>ProgramArguments</key>

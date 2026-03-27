@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LABEL="com.jerzy.mail-agent"
+LABEL="com.mailagent.gemini"
 PLIST_SRC="$ROOT/launchd/${LABEL}.plist"
 DEST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 
