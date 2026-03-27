@@ -1,24 +1,12 @@
 # Mail agent v2 (Gmail + Gemini)
 
-Batch CLI: fetches **unread** threads from Gmail `INBOX`, analyzes each with Gemini, and applies Gmail actions based on classification.
-
-## What v2 does
-
-- **Thread-aware**: groups unread messages by thread, fetches full conversation context via `threads.get`, and replies to the latest message from the external sender
-- Processes up to N unread threads in one run (default 10)
-- Classifies each thread: category, urgency, recommended action
-- `--draft` creates reply drafts for messages classified as `reply`
-- `--apply` executes Gmail actions: move spam, archive ignored, mark read
-- Without `--apply` the run is analysis-only (safe preview mode)
-- Returns a JSON array with results for all processed messages
+CLI: fetches **unread** threads from **INBOX**, classifies with Gemini, optionally creates drafts and runs Gmail actions (spam, archive, …). Prints **JSON** to stdout.
 
 ## Requirements
 
 - Python 3.10+
-- Gemini key in `.env` (`GEMINI_API_KEY`)
-- Reply signature name in `.env` (`REPLY_NAME`)
-- `credentials.json` (OAuth client type: **Desktop app**) in the project root
-- In Google Cloud: Gmail API enabled + OAuth consent configured + your account added as a test user
+- `.env`: `GEMINI_API_KEY`, `REPLY_NAME`
+- `credentials.json` (OAuth **Desktop app**), Gmail API enabled in Google Cloud, account as test user
 
 ## Setup
 
@@ -29,8 +17,6 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in `.env`:
-
 ```env
 GEMINI_API_KEY=your_api_key_here
 REPLY_NAME=Your Name
@@ -38,82 +24,65 @@ REPLY_NAME=Your Name
 
 ## Run
 
-Analyze up to 10 unread messages (read-only preview):
+Analysis only (no Gmail changes):
 
 ```bash
 python gmail_analyze.py
 ```
 
-Analyze and create draft replies where appropriate:
++ reply drafts (`reply` + trusted-sender thanks on spam):
 
 ```bash
 python gmail_analyze.py --draft
 ```
 
-Full mode — drafts + Gmail actions (spam, archive, mark read):
++ Gmail actions:
 
 ```bash
 python gmail_analyze.py --draft --apply
 ```
 
-Limit to 3 messages:
+Limit threads:
 
 ```bash
 python gmail_analyze.py --max 3 --draft --apply
 ```
 
-On first run, a browser will open for OAuth login. The app stores local credentials cache in `token.json` (file permissions `0600`, treat it as a secret).
+First run opens OAuth in the browser; token cache **`token.json`** (treat as secret, mode `0600`). **Upgrading from v1:** delete `token.json` to refresh scopes (`gmail.modify`).
 
-**Upgrading from v1:** remove `token.json` to refresh OAuth scopes (`gmail.modify` replaces the old `gmail.readonly` + `gmail.compose`).
+## Behavior (short)
 
-## macOS LaunchAgent (periodic run while logged in)
+- Default **max 10** threads; full **thread** context.
+- **`--draft`:** removes the thread from **INBOX** after a successful draft (**UNREAD** stays). On a later run, **stale agent drafts** are deleted once Gmail shows a **newer Sent** message in the same thread (e.g. you sent from another client).
+- With neither **`--draft`** nor **`--apply`** — analysis + JSON only.
 
-Optional setup: `launchd` runs `gmail_analyze.py` on an interval while your Mac is awake and you are logged in. **How often** is `StartInterval` in **`launchd/com.jerzy.mail-agent.plist`** (value in **seconds**). **Which flags** (`--max`, `--draft`, `--apply`, …) are in **`ProgramArguments`** in the same file.
+| Classification / action | Gmail with `--apply` | Draft (`--draft`) |
+|---|---|---|
+| `category: spam` | spam | no |
+| `action: ignore` | archive (remove INBOX) | no |
+| `action: mark_read` | archive, **keep UNREAD** | no |
+| `action: reply` | same after successful draft | yes |
+| `action: forward` | archive, **UNREAD**; forward manually | no |
+
+## JSON output
+
+One array, one object per thread: `from`, `subject`, `category`, `urgency`, `action`, `suggested_reply`, `result` (e.g. `draft created …`, `archived`, `moved to spam`, `analysis only`, `blocked (suspicious) …`).
+
+## macOS LaunchAgent (optional)
+
+Interval: **`StartInterval`** in `launchd/com.mailagent.gemini.plist` (seconds). Flags in **`ProgramArguments`**.
 
 ```bash
 ./scripts/install-launchagent.sh
 ```
 
-Copies that plist to `~/Library/LaunchAgents/` and registers the job. After you change the plist in the repo, run the install script again so macOS picks up the update. Stdout/stderr go to `logs/launchd-out.log` and `logs/launchd-err.log`. Unload: `launchctl bootout gui/$(id -u)/com.jerzy.mail-agent`.
+Logs: `logs/launchd-out.log`, `logs/launchd-err.log`. Unload: `launchctl bootout gui/$(id -u)/com.mailagent.gemini`.
 
-## Action dispatch
+If you previously used `com.jerzy.mail-agent`, unload it once: `launchctl bootout gui/$(id -u)/com.jerzy.mail-agent` and remove `~/Library/LaunchAgents/com.jerzy.mail-agent.plist` if present.
 
-| Classification | Gmail action (`--apply`) | Draft? |
-|---|---|---|
-| `category: spam` | move to spam | no |
-| `action: ignore` | archive (remove from INBOX) | no |
-| `action: mark_read` | mark as read | no |
-| `action: reply` | — | yes (with `--draft`) |
-| `action: forward` | mark as read | no (forward manually) |
+## Code map
 
-Without `--apply`, no Gmail modifications are made — the output shows what *would* happen.
-
-## JSON contract
-
-Output is a JSON array (one entry per thread):
-
-```json
-[
-  {
-    "from": "sender@example.com",
-    "subject": "Meeting tomorrow",
-    "category": "urgent | normal | spam",
-    "urgency": "high | medium | low",
-    "action": "reply | forward | ignore | mark_read",
-    "suggested_reply": "string (empty for non-reply actions)",
-    "result": "draft created | moved to spam | archived | marked as read | analysis only | analysis failed"
-  }
-]
-```
-
-## Analysis pipeline
-
-- `gmail_analyze.py` fetches unread threads via `threads.get` API, builds full conversation context with `[SENDER]`/`[ME]` role markers, and dispatches actions
-- `analysis.py` orchestrates the Gemini flow: input pre-screen -> generate -> validate -> anti-echo retry
-- `analysis_schema.py` contains the fixed schema and strict JSON validation (`additionalProperties=false`, text limits)
-- `analysis_text.py` contains reply text normalization, reply composition, similarity checks, and injection signal heuristics
-- `drafts.py` creates reply drafts with proper `In-Reply-To` and `References` threading headers
-- `gmail_actions.py` contains Gmail label operations (mark read, archive, report spam)
+`gmail_analyze.py` — CLI, Gmail, dispatch. `analysis*.py` — Gemini, validation, guard. `drafts.py` / `draft_cleanup.py` — drafts and post-send cleanup. `gmail_actions.py` — labels (archive, spam).
 
 ## Tests
 
@@ -121,21 +90,10 @@ Output is a JSON array (one entry per thread):
 python -m unittest discover tests/ -v
 ```
 
-## Security behavior (prompt injection hardening)
+## Security (prompt injection)
 
-- Multi-layer defense: regex pre-screen, LLM guard (via `system_instruction`), schema validation, output inspection, anti-echo
-- Randomized boundary markers around untrusted email content (prevents marker spoofing)
-- Detects Unicode confusables, ROT13, base64-encoded payloads, typoglycemia, split markers, zero-width characters
-- ROT13 detection uses heuristic gating to reduce false positives on normal English text
-- HTML stripping removes hidden content: `display:none`, `visibility:hidden`, `opacity:0`, `font-size:0`
-- Suspicious inputs are blocked with a generic message (no feedback to attacker)
-- Draft creation blocked for high-risk situations
-- Suspicious threads are marked as read with `--apply` to prevent infinite re-processing, but stay in INBOX for manual review (not moved to spam — avoids false-positive risk)
-- Technical failures (API errors) leave threads untouched for retry on next run
-- API calls enforce a 60-second timeout to prevent indefinite hangs
+Layered: pre-screen, model guard, JSON schema, output checks, anti-echo; boundary markers around mail bodies. Detection includes confusables, ROT13, base64, typoglycemia, zero-width, hidden HTML. **Suspicious** → block without attacker hints; high-risk skips drafts; with `--apply`, archive out of Inbox (not spam). API errors / **60 s** timeout leave Gmail unchanged for retry.
 
-## Known limits
+## Limits
 
-- No prompt-injection defense is perfect; filters can produce false positives or false negatives
-- Treat model output as assistive, not authoritative — review before using `--draft`
-- Each thread requires separate Gemini API calls (guard + analysis); processing 10 threads takes ~30-60 seconds
+No injection defense is perfect. Treat model output as assistive — especially before **`--draft`**. ~30–60 s for 10 threads (guard + analysis per thread).
