@@ -87,6 +87,17 @@ _HIDDEN_STYLE_RE = re.compile(
 )
 
 
+def _style_attr_value(tag: Any) -> str:
+    """Return inline ``style`` as a string; tolerate Tags with missing or broken ``attrs``."""
+    attrs = getattr(tag, "attrs", None)
+    if not isinstance(attrs, dict):
+        return ""
+    val = attrs.get("style", "")
+    if isinstance(val, list):
+        return " ".join(str(v) for v in val)
+    return str(val) if val else ""
+
+
 def _strip_html(html_str: str) -> str:
     soup = BeautifulSoup(html_str, "html.parser")
     for element in soup.find_all(string=lambda t: isinstance(t, Comment)):
@@ -94,7 +105,7 @@ def _strip_html(html_str: str) -> str:
     for tag in soup.find_all(["script", "style", "noscript"]):
         tag.decompose()
     for tag in soup.find_all(style=True):
-        if _HIDDEN_STYLE_RE.search(tag.get("style", "")):
+        if _HIDDEN_STYLE_RE.search(_style_attr_value(tag)):
             tag.decompose()
     text = soup.get_text(separator=" ")
     return re.sub(r"\s+", " ", text).strip()

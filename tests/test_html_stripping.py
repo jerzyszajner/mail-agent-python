@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import unittest
 
-from gmail_client import _strip_html
+from unittest.mock import MagicMock
+
+from gmail_client import _strip_html, _style_attr_value
 
 
 class BasicStrippingTests(unittest.TestCase):
@@ -159,6 +161,20 @@ class InjectionPayloadInHTMLTests(unittest.TestCase):
         result = _strip_html(html)
         assert "ignore" not in result
         assert "Legitimate" in result
+
+
+class StyleAttrHelperTests(unittest.TestCase):
+    """``_style_attr_value`` must not assume every Tag has a dict ``attrs`` (bs4 edge cases)."""
+
+    def test_none_attrs_returns_empty(self) -> None:
+        tag = MagicMock()
+        tag.attrs = None
+        assert _style_attr_value(tag) == ""
+
+    def test_list_style_joined(self) -> None:
+        tag = MagicMock()
+        tag.attrs = {"style": ["display:", " none"]}
+        assert _style_attr_value(tag) == "display:  none"
 
 
 class MalformedHTMLTests(unittest.TestCase):
