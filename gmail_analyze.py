@@ -18,9 +18,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from analysis import analyze_email_block, compose_suggested_reply
+from analysis import (
+    analyze_email_block,
+    compose_suggested_reply,
+    generate_trusted_acknowledgment_reply,
+)
+from draft_cleanup import cleanup_sent_agent_drafts
 from drafts import create_reply_draft
-from gmail_actions import archive, mark_as_read, report_spam
+from gmail_actions import archive, report_spam
 from gmail_client import decode_full_message_body, get_header
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -28,6 +33,20 @@ MAX_EMAIL_BODY_LEN = 32_000
 DEFAULT_MAX_RESULTS = 10
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
+TRUSTED_SENDERS_FILE = "trusted_senders.txt"
+
+
+def _load_trusted_senders(path: str = TRUSTED_SENDERS_FILE) -> frozenset[str]:
+    """One email per line; # starts comment. Missing file → empty set."""
+    if not os.path.isfile(path):
+        return frozenset()
+    out: set[str] = set()
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                out.add(line.lower())
+    return frozenset(out)
 
 
 def _load_cached_credentials() -> Credentials | None:
@@ -174,12 +193,11 @@ def _thread_to_email_text(
     return conversation_block, last_external_body, reply_target, thread_message_header_ids
 
 
-def _mark_thread_read(service, messages: list[dict]) -> None:
-    """Mark all UNREAD messages in a thread as read."""
+def _archive_thread_inbox_messages(service, messages: list[dict]) -> None:
+    """Remove INBOX from each message that still has it (keeps UNREAD)."""
     for msg in messages:
-        labels = msg.get("labelIds") or []
-        if "UNREAD" in labels:
-            mark_as_read(service, msg["id"])
+        if "INBOX" in (msg.get("labelIds") or []):
+            archive(service, msg["id"])
 
 
 def _dispatch_action(
@@ -192,9 +210,41 @@ def _dispatch_action(
     apply: bool,
     suggested_reply: str,
     thread_message_ids: list[str] | None = None,
+    trusted_sender: bool = False,
 ) -> str:
     """Execute the appropriate Gmail operation and return a result description."""
     if category == "spam":
+        if trusted_sender:
+            parts: list[str] = []
+            archived_here = False
+            if create_draft and suggested_reply.strip():
+                draft_id, had_error = create_reply_draft(
+                    service,
+                    msg,
+                    suggested_reply,
+                    thread_message_ids=thread_message_ids,
+                )
+                if had_error:
+                    parts.append("draft failed")
+                else:
+                    parts.append(f"draft created ({draft_id})")
+                    ok, _ = archive(service, msg["id"])
+                    parts.append(
+                        "archived (trusted sender; not reported as spam)"
+                        if ok
+                        else "archive failed"
+                    )
+                    archived_here = True
+            if apply and not archived_here:
+                ok, _ = archive(service, msg["id"])
+                parts.append(
+                    "archived (trusted sender; not reported as spam)"
+                    if ok
+                    else "archive failed"
+                )
+            if parts:
+                return " | ".join(parts)
+            return "would archive (trusted sender; not spam)"
         if apply:
             ok, _ = report_spam(service, msg["id"])
             return "moved to spam" if ok else "spam action failed"
@@ -207,10 +257,11 @@ def _dispatch_action(
         return "would archive"
 
     if action == "mark_read":
+        # Archive out of Inbox but keep UNREAD — user reads on their own; avoids re-fetch loops.
         if apply:
-            ok, _ = mark_as_read(service, msg["id"])
-            return "marked as read" if ok else "mark_read failed"
-        return "would mark as read"
+            ok, _ = archive(service, msg["id"])
+            return "archived (unread)" if ok else "archive failed"
+        return "would archive (unread)"
 
     if action == "reply":
         if create_draft:
@@ -220,14 +271,17 @@ def _dispatch_action(
             )
             if had_error:
                 return "draft failed"
-            return f"draft created ({draft_id})"
+            ok, _ = archive(service, msg["id"])
+            if ok:
+                return f"draft created ({draft_id}) | archived (unread)"
+            return f"draft created ({draft_id}) | archive failed"
         return "analysis only"
 
     if action == "forward":
         if apply:
-            ok, _ = mark_as_read(service, msg["id"])
-            return "marked as read (forward manually)" if ok else "mark_read failed"
-        return "would mark as read (forward manually)"
+            ok, _ = archive(service, msg["id"])
+            return "archived (unread; forward manually)" if ok else "archive failed"
+        return "would archive (unread; forward manually)"
 
     return "analysis only"
 
@@ -240,6 +294,7 @@ def _analyze_single(
     create_draft: bool,
     apply: bool,
     reply_name: str,
+    trusted_senders: frozenset[str],
 ) -> dict[str, Any]:
     """Analyze one thread and return a result dict for the summary."""
     messages = thread.get("messages") or []
@@ -261,6 +316,8 @@ def _analyze_single(
     target_headers = (reply_target.get("payload") or {}).get("headers") or []
     sender = get_header(target_headers, "From")
     subject = get_header(target_headers, "Subject")
+    sender_email = _extract_email(sender).lower()
+    trusted_sender = bool(trusted_senders and sender_email in trusted_senders)
 
     if not last_body.strip():
         print(f"Note: no body for thread {thread.get('id')} (attachments only).", file=sys.stderr)
@@ -269,8 +326,8 @@ def _analyze_single(
 
     if result.error:
         if result.suspicious and apply:
-            _mark_thread_read(service, messages)
-            result_desc = "blocked (suspicious) — marked as read"
+            _archive_thread_inbox_messages(service, messages)
+            result_desc = "blocked (suspicious) — archived (unread)"
         elif result.suspicious:
             result_desc = "blocked (suspicious)"
         else:
@@ -291,10 +348,29 @@ def _analyze_single(
     action = str(parsed.get("action") or "")
 
     suggested_reply = ""
+    trusted_thanks = (
+        trusted_sender
+        and category == "spam"
+        and action == "ignore"
+        and not result.suspicious
+    )
     if action == "reply" and not result.suspicious:
         suggested_reply = compose_suggested_reply(parsed, reply_name)
+    elif trusted_thanks and create_draft:
+        thanks_text, thanks_err = generate_trusted_acknowledgment_reply(
+            conversation_block, reply_name
+        )
+        if thanks_text:
+            suggested_reply = thanks_text
+        elif thanks_err:
+            print(
+                f"Trusted-sender draft skipped: {thanks_err}",
+                file=sys.stderr,
+            )
 
-    effective_draft = create_draft and not result.suspicious and action == "reply"
+    effective_draft = create_draft and not result.suspicious and (
+        action == "reply" or trusted_thanks
+    )
 
     action_result = _dispatch_action(
         service,
@@ -305,10 +381,8 @@ def _analyze_single(
         apply=apply,
         suggested_reply=suggested_reply,
         thread_message_ids=thread_msg_ids,
+        trusted_sender=trusted_sender,
     )
-
-    if apply:
-        _mark_thread_read(service, messages)
 
     return {
         "from": sender,
@@ -325,6 +399,7 @@ def analyze_inbox(
     max_results: int = DEFAULT_MAX_RESULTS,
     create_draft: bool = False,
     apply: bool = False,
+    trusted_senders: frozenset[str] | None = None,
 ) -> int:
     stamp = datetime.now().astimezone().isoformat(timespec="seconds")
     banner = f"=== gmail_analyze run started {stamp} ==="
@@ -347,6 +422,13 @@ def analyze_inbox(
     except HttpError:
         print("Warning: could not fetch user profile; thread role detection may be inaccurate.", file=sys.stderr)
 
+    n_cleaned = cleanup_sent_agent_drafts(service)
+    if n_cleaned:
+        print(
+            f"Draft cleanup: removed {n_cleaned} agent draft(s) after detecting send in thread.",
+            file=sys.stderr,
+        )
+
     threads, had_error = _fetch_unread_threads(service, max_results)
     if not threads:
         if had_error:
@@ -355,6 +437,7 @@ def analyze_inbox(
         return 0
 
     reply_name = os.environ.get("REPLY_NAME") or ""
+    trusted = trusted_senders if trusted_senders is not None else _load_trusted_senders()
     results: list[dict[str, Any]] = []
 
     for i, thread in enumerate(threads, start=1):
@@ -372,6 +455,7 @@ def analyze_inbox(
             create_draft=create_draft,
             apply=apply,
             reply_name=reply_name,
+            trusted_senders=trusted,
         )
         results.append(entry)
         print(f"  -> {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
@@ -391,12 +475,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--draft",
         action="store_true",
-        help="Create Gmail draft replies for messages classified as 'reply'.",
+        help="Create Gmail draft replies for 'reply' (and trusted-sender spam thanks). Each successful draft removes the thread from INBOX (UNREAD kept).",
     )
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Execute Gmail actions: move spam, archive ignored, mark read. Without this flag the run is analysis-only.",
+        help="Execute Gmail actions: spam, archive, mark_read, forward when chosen. Archive/spam keep UNREAD. Without --draft and without this flag, no Gmail changes.",
     )
     return parser.parse_args(argv)
 
