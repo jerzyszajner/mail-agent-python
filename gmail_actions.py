@@ -13,6 +13,13 @@ def archive(service: Any, msg_id: str) -> tuple[bool, str | None]:
     return _modify_labels(service, msg_id, remove=["INBOX"])
 
 
+def important_archive(service: Any, msg_id: str) -> tuple[bool, str | None]:
+    """Mark as Important (IMPORTANT) and remove INBOX; leave UNREAD."""
+    return _modify_labels(
+        service, msg_id, add=["IMPORTANT"], remove=["INBOX"]
+    )
+
+
 def report_spam(service: Any, msg_id: str) -> tuple[bool, str | None]:
     """Move to spam; leave UNREAD so Spam still shows as new mail."""
     return _modify_labels(service, msg_id, add=["SPAM"], remove=["INBOX"])

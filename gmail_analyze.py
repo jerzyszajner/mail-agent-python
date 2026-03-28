@@ -18,6 +18,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from account_notifier import sender_is_account_notifier
 from analysis import (
     analyze_email_block,
     compose_suggested_reply,
@@ -25,7 +26,7 @@ from analysis import (
 )
 from draft_cleanup import cleanup_sent_agent_drafts
 from drafts import create_reply_draft
-from gmail_actions import archive, report_spam
+from gmail_actions import archive, important_archive, report_spam
 from gmail_client import decode_full_message_body, get_header
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -211,8 +212,16 @@ def _dispatch_action(
     suggested_reply: str,
     thread_message_ids: list[str] | None = None,
     trusted_sender: bool = False,
+    sender_email: str = "",
 ) -> str:
     """Execute the appropriate Gmail operation and return a result description."""
+    account_notifier = sender_is_account_notifier(sender_email)
+
+    def _out_of_inbox() -> tuple[bool, str | None]:
+        if account_notifier:
+            return important_archive(service, msg["id"])
+        return archive(service, msg["id"])
+
     if category == "spam":
         if trusted_sender:
             parts: list[str] = []
@@ -228,23 +237,41 @@ def _dispatch_action(
                     parts.append("draft failed")
                 else:
                     parts.append(f"draft created ({draft_id})")
-                    ok, _ = archive(service, msg["id"])
-                    parts.append(
-                        "archived (trusted sender; not reported as spam)"
-                        if ok
-                        else "archive failed"
+                    ok, _ = _out_of_inbox()
+                    tail = (
+                        "archived as important (trusted sender; not spam)"
+                        if account_notifier
+                        else "archived (trusted sender; not reported as spam)"
                     )
+                    parts.append(tail if ok else "archive failed")
                     archived_here = True
             if apply and not archived_here:
-                ok, _ = archive(service, msg["id"])
+                ok, _ = _out_of_inbox()
                 parts.append(
-                    "archived (trusted sender; not reported as spam)"
+                    (
+                        "archived as important (trusted sender; not spam)"
+                        if account_notifier
+                        else "archived (trusted sender; not reported as spam)"
+                    )
                     if ok
                     else "archive failed"
                 )
             if parts:
                 return " | ".join(parts)
-            return "would archive (trusted sender; not spam)"
+            return (
+                "would archive as important (trusted sender; not spam)"
+                if account_notifier
+                else "would archive (trusted sender; not spam)"
+            )
+        if account_notifier:
+            if apply:
+                ok, _ = important_archive(service, msg["id"])
+                return (
+                    "marked important (account notifier; not spam)"
+                    if ok
+                    else "important action failed"
+                )
+            return "would mark important (account notifier; not spam)"
         if apply:
             ok, _ = report_spam(service, msg["id"])
             return "moved to spam" if ok else "spam action failed"
@@ -252,16 +279,28 @@ def _dispatch_action(
 
     if action == "ignore":
         if apply:
-            ok, _ = archive(service, msg["id"])
-            return "archived" if ok else "archive failed"
-        return "would archive"
+            ok, _ = _out_of_inbox()
+            if not ok:
+                return "archive failed"
+            return "archived as important" if account_notifier else "archived"
+        return "would archive as important" if account_notifier else "would archive"
 
     if action == "mark_read":
         # Archive out of Inbox but keep UNREAD — user reads on their own; avoids re-fetch loops.
         if apply:
-            ok, _ = archive(service, msg["id"])
-            return "archived (unread)" if ok else "archive failed"
-        return "would archive (unread)"
+            ok, _ = _out_of_inbox()
+            if not ok:
+                return "archive failed"
+            return (
+                "archived as important (unread)"
+                if account_notifier
+                else "archived (unread)"
+            )
+        return (
+            "would archive as important (unread)"
+            if account_notifier
+            else "would archive (unread)"
+        )
 
     if action == "reply":
         if create_draft:
@@ -271,17 +310,32 @@ def _dispatch_action(
             )
             if had_error:
                 return "draft failed"
-            ok, _ = archive(service, msg["id"])
+            ok, _ = _out_of_inbox()
             if ok:
-                return f"draft created ({draft_id}) | archived (unread)"
+                tail = (
+                    "archived as important (unread)"
+                    if account_notifier
+                    else "archived (unread)"
+                )
+                return f"draft created ({draft_id}) | {tail}"
             return f"draft created ({draft_id}) | archive failed"
         return "analysis only"
 
     if action == "forward":
         if apply:
-            ok, _ = archive(service, msg["id"])
-            return "archived (unread; forward manually)" if ok else "archive failed"
-        return "would archive (unread; forward manually)"
+            ok, _ = _out_of_inbox()
+            if not ok:
+                return "archive failed"
+            return (
+                "archived as important (unread; forward manually)"
+                if account_notifier
+                else "archived (unread; forward manually)"
+            )
+        return (
+            "would archive as important (unread; forward manually)"
+            if account_notifier
+            else "would archive (unread; forward manually)"
+        )
 
     return "analysis only"
 
@@ -382,6 +436,7 @@ def _analyze_single(
         suggested_reply=suggested_reply,
         thread_message_ids=thread_msg_ids,
         trusted_sender=trusted_sender,
+        sender_email=sender_email,
     )
 
     return {

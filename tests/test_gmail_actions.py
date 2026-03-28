@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from googleapiclient.errors import HttpError
 
-from gmail_actions import archive, report_spam
+from gmail_actions import archive, important_archive, report_spam
 
 
 def _make_service_mock(side_effect=None):
@@ -38,6 +38,23 @@ class TestArchive(unittest.TestCase):
         ok, err = archive(service, "msg456")
         self.assertFalse(ok)
         self.assertIn("500", err)
+
+
+class TestImportantArchive(unittest.TestCase):
+    def test_adds_important_removes_inbox(self):
+        service, modify = _make_service_mock()
+        ok, err = important_archive(service, "msg111")
+        self.assertTrue(ok)
+        self.assertIsNone(err)
+        call_body = modify.call_args[1]["body"]
+        self.assertIn("IMPORTANT", call_body["addLabelIds"])
+        self.assertEqual(call_body["removeLabelIds"], ["INBOX"])
+
+    def test_returns_error_on_http_failure(self):
+        service, _ = _make_service_mock(side_effect=_http_error(403))
+        ok, err = important_archive(service, "msg111")
+        self.assertFalse(ok)
+        self.assertIn("403", err)
 
 
 class TestReportSpam(unittest.TestCase):

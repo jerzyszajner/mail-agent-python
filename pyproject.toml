@@ -22,6 +22,7 @@ dev = ["pytest>=8.0.0"]
 
 [tool.setuptools]
 py-modules = [
+    "account_notifier",
     "analysis",
     "analysis_schema",
     "analysis_text",
