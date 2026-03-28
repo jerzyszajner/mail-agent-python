@@ -201,6 +201,38 @@ def _archive_thread_inbox_messages(service, messages: list[dict]) -> None:
             archive(service, msg["id"])
 
 
+def _sync_thread_out_of_inbox(
+    service: Any,
+    thread_messages: list[dict],
+    *,
+    category: str,
+    trusted_sender: bool,
+) -> bool:
+    """Remove INBOX from every message that still has it (per-message spam / important rules)."""
+    all_ok = True
+    for tm in thread_messages:
+        if "INBOX" not in (tm.get("labelIds") or []):
+            continue
+        hdrs = (tm.get("payload") or {}).get("headers") or []
+        from_addr = get_header(hdrs, "From")
+        addr = _extract_email(from_addr).lower()
+        notifier = sender_is_account_notifier(addr)
+        mid = tm["id"]
+
+        if category == "spam":
+            if trusted_sender:
+                ok, _ = important_archive(service, mid) if notifier else archive(service, mid)
+            elif notifier:
+                ok, _ = important_archive(service, mid)
+            else:
+                ok, _ = report_spam(service, mid)
+        else:
+            ok, _ = important_archive(service, mid) if notifier else archive(service, mid)
+        if not ok:
+            all_ok = False
+    return all_ok
+
+
 def _dispatch_action(
     service,
     msg: dict,
@@ -213,19 +245,21 @@ def _dispatch_action(
     thread_message_ids: list[str] | None = None,
     trusted_sender: bool = False,
     sender_email: str = "",
+    thread_messages: list[dict] | None = None,
 ) -> str:
     """Execute the appropriate Gmail operation and return a result description."""
     account_notifier = sender_is_account_notifier(sender_email)
+    tmsgs = thread_messages if thread_messages is not None else [msg]
 
-    def _out_of_inbox() -> tuple[bool, str | None]:
-        if account_notifier:
-            return important_archive(service, msg["id"])
-        return archive(service, msg["id"])
+    def _sync() -> bool:
+        return _sync_thread_out_of_inbox(
+            service, tmsgs, category=category, trusted_sender=trusted_sender
+        )
 
     if category == "spam":
         if trusted_sender:
             parts: list[str] = []
-            archived_here = False
+            did_sync = False
             if create_draft and suggested_reply.strip():
                 draft_id, had_error = create_reply_draft(
                     service,
@@ -237,16 +271,16 @@ def _dispatch_action(
                     parts.append("draft failed")
                 else:
                     parts.append(f"draft created ({draft_id})")
-                    ok, _ = _out_of_inbox()
+                    ok = _sync()
                     tail = (
                         "archived as important (trusted sender; not spam)"
                         if account_notifier
                         else "archived (trusted sender; not reported as spam)"
                     )
                     parts.append(tail if ok else "archive failed")
-                    archived_here = True
-            if apply and not archived_here:
-                ok, _ = _out_of_inbox()
+                    did_sync = True
+            if apply and not did_sync:
+                ok = _sync()
                 parts.append(
                     (
                         "archived as important (trusted sender; not spam)"
@@ -265,7 +299,7 @@ def _dispatch_action(
             )
         if account_notifier:
             if apply:
-                ok, _ = important_archive(service, msg["id"])
+                ok = _sync()
                 return (
                     "marked important (account notifier; not spam)"
                     if ok
@@ -273,13 +307,13 @@ def _dispatch_action(
                 )
             return "would mark important (account notifier; not spam)"
         if apply:
-            ok, _ = report_spam(service, msg["id"])
+            ok = _sync()
             return "moved to spam" if ok else "spam action failed"
         return "would move to spam"
 
     if action == "ignore":
         if apply:
-            ok, _ = _out_of_inbox()
+            ok = _sync()
             if not ok:
                 return "archive failed"
             return "archived as important" if account_notifier else "archived"
@@ -288,7 +322,7 @@ def _dispatch_action(
     if action == "mark_read":
         # Archive out of Inbox but keep UNREAD — user reads on their own; avoids re-fetch loops.
         if apply:
-            ok, _ = _out_of_inbox()
+            ok = _sync()
             if not ok:
                 return "archive failed"
             return (
@@ -310,7 +344,7 @@ def _dispatch_action(
             )
             if had_error:
                 return "draft failed"
-            ok, _ = _out_of_inbox()
+            ok = _sync()
             if ok:
                 tail = (
                     "archived as important (unread)"
@@ -323,7 +357,7 @@ def _dispatch_action(
 
     if action == "forward":
         if apply:
-            ok, _ = _out_of_inbox()
+            ok = _sync()
             if not ok:
                 return "archive failed"
             return (
@@ -437,6 +471,7 @@ def _analyze_single(
         thread_message_ids=thread_msg_ids,
         trusted_sender=trusted_sender,
         sender_email=sender_email,
+        thread_messages=messages,
     )
 
     return {
