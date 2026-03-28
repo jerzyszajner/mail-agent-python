@@ -11,7 +11,7 @@ if [[ ! -f "$PLIST_SRC" ]]; then
 	exit 1
 fi
 if [[ ! -x "$ROOT/venv/bin/python" ]]; then
-	echo "No venv at $ROOT/venv — run: python -m venv venv && pip install -r requirements.txt" >&2
+	echo "No venv at $ROOT/venv — run: python -m venv venv && pip install -e ." >&2
 	exit 1
 fi
 

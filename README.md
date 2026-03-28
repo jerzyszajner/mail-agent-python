@@ -13,9 +13,12 @@ CLI: fetches **unread** threads from **INBOX**, classifies with Gemini, optional
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -U pip
+pip install -e ".[dev]"
 cp .env.example .env
 ```
+
+Dependencies live in `pyproject.toml` (see [PyPA: `pyproject.toml`](https://packaging.python.org/en/latest/specifications/pyproject-toml/)). The `dev` extra adds pytest; runtime-only: `pip install -e .`.
 
 ```env
 GEMINI_API_KEY=your_api_key_here

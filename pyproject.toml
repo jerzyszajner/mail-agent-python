@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mail-agent"
+version = "0.1.0"
+description = "Gmail + Gemini mail agent CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "google-genai>=1.0.0",
+    "google-api-python-client>=2.192.0",
+    "google-auth-httplib2>=0.3.0",
+    "google-auth-oauthlib>=1.3.0",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[tool.setuptools]
+py-modules = [
+    "analysis",
+    "analysis_schema",
+    "analysis_text",
+    "draft_cleanup",
+    "drafts",
+    "gmail_actions",
+    "gmail_analyze",
+    "gmail_client",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
