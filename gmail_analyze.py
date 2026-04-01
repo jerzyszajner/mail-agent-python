@@ -10,10 +10,13 @@ import re
 import sys
 from typing import Any
 
+import httplib2
+import requests
 from dotenv import load_dotenv
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_auth_httplib2 import AuthorizedHttp
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -79,12 +82,35 @@ def _save_credentials(creds: Credentials) -> None:
         json.dump(data, f)
 
 
+def _http_timeout_seconds() -> float:
+    raw = os.environ.get("GMAIL_HTTP_TIMEOUT", "120")
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return 120.0
+
+
+def _google_auth_request() -> Request:
+    """google.auth refresh/OAuth HTTP with a finite timeout (avoids launchd hangs)."""
+    timeout = _http_timeout_seconds()
+    session = requests.Session()
+    orig = session.request
+
+    def request(method: str, url: str, **kwargs: Any):
+        kwargs.setdefault("timeout", timeout)
+        return orig(method, url, **kwargs)
+
+    session.request = request  # type: ignore[method-assign]
+    return Request(session=session)
+
+
 def get_gmail_service() -> Any:
     creds = _load_cached_credentials()
+    auth_req = _google_auth_request()
 
     if creds and creds.expired and creds.refresh_token:
         try:
-            creds.refresh(Request())
+            creds.refresh(auth_req)
             _save_credentials(creds)
         except RefreshError:
             creds = None
@@ -92,13 +118,25 @@ def get_gmail_service() -> Any:
                 os.remove("token.json")
             except OSError:
                 pass
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Gmail token refresh failed ({type(exc).__name__}: {exc}). "
+                "Check network; token.json was not removed."
+            ) from exc
 
     if not creds or not creds.valid:
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Gmail login required but there is no interactive terminal; "
+                "run gmail_analyze.py once from Terminal, then restart the agent."
+            )
         flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
         creds = flow.run_local_server(port=0)
         _save_credentials(creds)
 
-    return build("gmail", "v1", credentials=creds)
+    t = _http_timeout_seconds()
+    authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=t))
+    return build("gmail", "v1", http=authed_http, cache_discovery=False)
 
 
 def _is_from_me(from_header: str, my_email: str) -> bool:
@@ -523,7 +561,7 @@ def analyze_inbox(
     if not threads:
         if had_error:
             return 1
-        print("No unread messages in INBOX.")
+        print("No unread messages in INBOX.", flush=True)
         return 0
 
     reply_name = os.environ.get("REPLY_NAME") or ""
@@ -550,7 +588,7 @@ def analyze_inbox(
         results.append(entry)
         print(f"  -> {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
 
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    print(json.dumps(results, ensure_ascii=False, indent=2), flush=True)
     return 0
 
 
