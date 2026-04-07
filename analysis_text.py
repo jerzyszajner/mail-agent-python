@@ -211,13 +211,38 @@ def _text_has_common_english(text: str) -> bool:
 
 
 def _contains_rot13_instruction(text: str) -> bool:
-    if _text_has_common_english(text):
-        return False
-    decoded = codecs.decode(text, "rot_13")
-    if any(pattern.search(decoded) for pattern in INJECTION_PATTERNS):
-        return True
-    compact_decoded = re.sub(r"[^a-z0-9]+", "", decoded)
-    return any(marker in compact_decoded for marker in SPLIT_INSTRUCTION_MARKERS)
+    """Check for ROT13-encoded injection in ASCII-only word segments.
+
+    Operates on segments of consecutive all-ASCII words (2+ words, or a single
+    word of 10+ chars for compound markers) to avoid false positives for emails
+    in languages with non-ASCII characters (Polish, German, French, etc.).
+    """
+    ascii_segments: list[str] = []
+    current: list[str] = []
+    for word in text.split():
+        if word.isascii() and word.isalpha():
+            current.append(word)
+        else:
+            if len(current) >= 2:
+                ascii_segments.append(" ".join(current))
+            elif len(current) == 1 and len(current[0]) >= 10:
+                ascii_segments.append(current[0])
+            current = []
+    if len(current) >= 2:
+        ascii_segments.append(" ".join(current))
+    elif len(current) == 1 and len(current[0]) >= 10:
+        ascii_segments.append(current[0])
+
+    for segment in ascii_segments:
+        if _text_has_common_english(segment):
+            continue
+        decoded = codecs.decode(segment, "rot_13")
+        if any(pattern.search(decoded) for pattern in INJECTION_PATTERNS):
+            return True
+        compact_decoded = re.sub(r"[^a-z0-9]+", "", decoded)
+        if any(marker in compact_decoded for marker in SPLIT_INSTRUCTION_MARKERS):
+            return True
+    return False
 
 
 def _contains_typoglycemia_instruction(text: str) -> bool:
