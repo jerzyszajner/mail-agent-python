@@ -36,11 +36,17 @@ def _save_pending(rows: list[dict[str, Any]]) -> None:
             continue
         seen.add(did)
         unique.append(row)
+    tmp_path = PENDING_DRAFTS_FILE + ".tmp"
     try:
-        with open(PENDING_DRAFTS_FILE, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(unique, f, indent=2)
+        os.replace(tmp_path, PENDING_DRAFTS_FILE)
     except OSError as exc:
         print(f"Could not save {PENDING_DRAFTS_FILE}: {exc}", file=sys.stderr)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def register_agent_draft(service: Any, draft_id: str | None, thread_id: str | None) -> None:
