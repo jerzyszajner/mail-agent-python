@@ -584,27 +584,51 @@ def analyze_inbox(
 
     def _worker(args: tuple[int, dict]) -> dict[str, Any]:
         i, thread = args
-        msgs = thread.get("messages") or []
-        last_msg = sorted(msgs, key=lambda m: int(m.get("internalDate", "0")))[-1] if msgs else {}
-        last_headers = (last_msg.get("payload") or {}).get("headers") or []
-        subject = get_header(last_headers, "Subject")
-        msg_count = len(msgs)
-        print(f"[{i}/{total}] Analyzing thread ({msg_count} msgs): {subject}", file=sys.stderr)
-        thread_service = _build_service(creds)
-        entry = _analyze_single(
-            thread_service,
-            thread,
-            my_email,
-            create_draft=create_draft,
-            apply=apply,
-            reply_name=reply_name,
-            trusted_senders=trusted,
-        )
-        print(f"  -> [{i}/{total}] {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
-        return entry
+        subject = ""
+        thread_service = None
+        try:
+            msgs = thread.get("messages") or []
+            last_msg = sorted(msgs, key=lambda m: int(m.get("internalDate", "0")))[-1] if msgs else {}
+            last_headers = (last_msg.get("payload") or {}).get("headers") or []
+            subject = get_header(last_headers, "Subject")
+            msg_count = len(msgs)
+            print(f"[{i}/{total}] Analyzing thread ({msg_count} msgs): {subject}", file=sys.stderr)
+            thread_service = _build_service(creds)
+            entry = _analyze_single(
+                thread_service,
+                thread,
+                my_email,
+                create_draft=create_draft,
+                apply=apply,
+                reply_name=reply_name,
+                trusted_senders=trusted,
+            )
+            print(f"  -> [{i}/{total}] {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
+            return entry
+        except Exception as exc:
+            print(f"[{i}/{total}] Worker failed for thread {thread.get('id', '?')}: {exc}", file=sys.stderr)
+            return {
+                "thread_id": thread.get("id", ""),
+                "subject": subject,
+                "category": "error",
+                "action": "none",
+                "result": f"worker_error: {exc}",
+            }
+        finally:
+            if thread_service is not None:
+                try:
+                    http = getattr(getattr(thread_service, "_http", None), "http", None)
+                    if http and hasattr(http, "connections"):
+                        http.connections.clear()
+                except Exception:
+                    pass
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(executor.map(_worker, enumerate(threads, start=1)))
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(_worker, enumerate(threads, start=1)))
+    except Exception as exc:
+        print(f"Fatal error in thread pool: {exc}", file=sys.stderr)
+        return 1
 
     print(json.dumps(results, ensure_ascii=False, indent=2), flush=True)
     return 0
