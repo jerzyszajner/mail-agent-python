@@ -284,7 +284,8 @@ def generate_trusted_acknowledgment_reply(
     parsed, err = _generate_and_validate(email_block, "", system_prompt=TRUSTED_ACK_PROMPT)
     if err:
         return None, err
-    assert parsed is not None
+    if parsed is None:
+        return None, "model returned no output"
     if looks_like_injection_output(parsed):
         return None, "output filter"
     return compose_suggested_reply(parsed, reply_name), None
