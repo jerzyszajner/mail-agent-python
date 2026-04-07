@@ -9,11 +9,7 @@
       "Bash(git add *)",
       "Bash(git commit *)"
     ],
-    "deny": [
-      "Edit(.env*)",
-      "Edit(token.json)",
-      "Edit(credentials.json)"
-    ]
+    "deny": ["Edit(.env*)", "Edit(token.json)", "Edit(credentials.json)"]
   },
   "hooks": {
     "PostToolUse": [
@@ -27,13 +23,24 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/block-sensitive-reads.py"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "osascript -e 'display notification \"Claude czeka na odpowiedź\" with title \"Claude Code\"'"
+            "command": "osascript -e 'display notification \"Claude waiting for response\" with title \"Claude Code\"'"
           }
         ]
       }
