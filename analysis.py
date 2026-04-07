@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import uuid
 from typing import Any, NamedTuple
 
@@ -33,6 +34,9 @@ ANALYZE_TEMPERATURE = 0.4
 ANALYZE_MAX_TOKENS = 2000
 GUARD_TEMPERATURE = 0.0
 GUARD_MAX_TOKENS = 180
+
+_gemini_client: "genai.Client | None" = None
+_client_lock = threading.Lock()
 
 
 class AnalysisResult(NamedTuple):
@@ -117,6 +121,18 @@ TRUSTED_ACK_PROMPT = (
 
 _BLOCK_MSG = "Analysis blocked. Manual review required."
 
+
+def _get_gemini_client() -> "genai.Client":
+    global _gemini_client
+    if _gemini_client is None:
+        with _client_lock:
+            if _gemini_client is None:
+                _gemini_client = genai.Client(
+                    http_options=types.HttpOptions(timeout=API_TIMEOUT_MS)
+                )
+    return _gemini_client
+
+
 __all__ = [
     "AnalysisResult",
     "analyze_email_block",
@@ -181,7 +197,7 @@ def _generate_and_validate(
     base = ANALYZE_PROMPT if system_prompt is None else system_prompt
     prompt = base if not extra_instruction else f"{base}\n{extra_instruction}"
     try:
-        client = genai.Client(http_options=types.HttpOptions(timeout=API_TIMEOUT_MS))
+        client = _get_gemini_client()
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=_wrap_untrusted_email(email_block),
@@ -225,7 +241,7 @@ def _wrap_untrusted_email(email_block: str) -> str:
 def _classify_input_risk(email_block: str) -> tuple[str, str | None]:
     """Classify input risk level independently from regex heuristics."""
     try:
-        client = genai.Client(http_options=types.HttpOptions(timeout=API_TIMEOUT_MS))
+        client = _get_gemini_client()
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=_wrap_untrusted_email(email_block),

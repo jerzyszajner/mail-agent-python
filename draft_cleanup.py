@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from typing import Any
 
 from googleapiclient.errors import HttpError
 
 PENDING_DRAFTS_FILE = "agent_pending_drafts.json"
+_pending_drafts_lock = threading.Lock()
 
 
 def _load_pending() -> list[dict[str, Any]]:
@@ -45,26 +47,27 @@ def register_agent_draft(service: Any, draft_id: str | None, thread_id: str | No
     """Record a draft created by this app for later cleanup. No-op if IDs missing or API fails."""
     if not draft_id or not thread_id:
         return
-    rows = _load_pending()
-    if any(str(r.get("draft_id")) == draft_id for r in rows):
-        return
-    try:
-        dg = (
-            service.users()
-            .drafts()
-            .get(userId="me", id=draft_id, format="metadata")
-            .execute()
+    with _pending_drafts_lock:
+        rows = _load_pending()
+        if any(str(r.get("draft_id")) == draft_id for r in rows):
+            return
+        try:
+            dg = (
+                service.users()
+                .drafts()
+                .get(userId="me", id=draft_id, format="metadata")
+                .execute()
+            )
+        except HttpError:
+            return
+        msg = dg.get("message") or {}
+        ms = int(msg.get("internalDate") or 0)
+        if ms <= 0:
+            return
+        rows.append(
+            {"draft_id": draft_id, "thread_id": thread_id, "draft_internal_ms": ms}
         )
-    except HttpError:
-        return
-    msg = dg.get("message") or {}
-    ms = int(msg.get("internalDate") or 0)
-    if ms <= 0:
-        return
-    rows.append(
-        {"draft_id": draft_id, "thread_id": thread_id, "draft_internal_ms": ms}
-    )
-    _save_pending(rows)
+        _save_pending(rows)
 
 
 def thread_has_sent_newer_than(service: Any, thread_id: str, draft_ref_ms: int) -> bool:
@@ -92,38 +95,39 @@ def cleanup_sent_agent_drafts(service: Any) -> int:
     (e.g. user sent from Apple Mail). Removes entries for missing drafts (404).
     Returns how many drafts were deleted.
     """
-    pending = _load_pending()
-    if not pending:
-        return 0
-    kept: list[dict[str, Any]] = []
-    deleted = 0
-    for row in pending:
-        draft_id = str(row["draft_id"])
-        thread_id = str(row["thread_id"])
-        draft_ms = int(row.get("draft_internal_ms") or 0)
-        try:
-            dg = (
-                service.users()
-                .drafts()
-                .get(userId="me", id=draft_id, format="metadata")
-                .execute()
-            )
-        except HttpError as exc:
-            if getattr(exc.resp, "status", None) == 404:
-                continue
-            kept.append(row)
-            continue
-        msg = dg.get("message") or {}
-        cur_ms = int(msg.get("internalDate") or 0)
-        draft_ref_ms = max(draft_ms, cur_ms)
-        if thread_has_sent_newer_than(service, thread_id, draft_ref_ms):
+    with _pending_drafts_lock:
+        pending = _load_pending()
+        if not pending:
+            return 0
+        kept: list[dict[str, Any]] = []
+        deleted = 0
+        for row in pending:
+            draft_id = str(row["draft_id"])
+            thread_id = str(row["thread_id"])
+            draft_ms = int(row.get("draft_internal_ms") or 0)
             try:
-                service.users().drafts().delete(userId="me", id=draft_id).execute()
-                deleted += 1
+                dg = (
+                    service.users()
+                    .drafts()
+                    .get(userId="me", id=draft_id, format="metadata")
+                    .execute()
+                )
             except HttpError as exc:
-                if getattr(exc.resp, "status", None) != 404:
-                    kept.append(row)
-        else:
-            kept.append(row)
-    _save_pending(kept)
-    return deleted
+                if getattr(exc.resp, "status", None) == 404:
+                    continue
+                kept.append(row)
+                continue
+            msg = dg.get("message") or {}
+            cur_ms = int(msg.get("internalDate") or 0)
+            draft_ref_ms = max(draft_ms, cur_ms)
+            if thread_has_sent_newer_than(service, thread_id, draft_ref_ms):
+                try:
+                    service.users().drafts().delete(userId="me", id=draft_id).execute()
+                    deleted += 1
+                except HttpError as exc:
+                    if getattr(exc.resp, "status", None) != 404:
+                        kept.append(row)
+            else:
+                kept.append(row)
+        _save_pending(kept)
+        return deleted

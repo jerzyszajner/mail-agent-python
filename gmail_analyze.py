@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from datetime import datetime
@@ -35,6 +36,7 @@ from gmail_client import decode_full_message_body, get_header
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 MAX_EMAIL_BODY_LEN = 32_000
 DEFAULT_MAX_RESULTS = 10
+DEFAULT_MAX_WORKERS = 5
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 TRUSTED_SENDERS_FILE = "trusted_senders.txt"
@@ -104,7 +106,8 @@ def _google_auth_request() -> Request:
     return Request(session=session)
 
 
-def get_gmail_service() -> Any:
+def _get_credentials() -> Credentials:
+    """Load, refresh, or interactively obtain OAuth credentials. Writes token.json on change."""
     creds = _load_cached_credentials()
     auth_req = _google_auth_request()
 
@@ -134,9 +137,18 @@ def get_gmail_service() -> Any:
         creds = flow.run_local_server(port=0)
         _save_credentials(creds)
 
+    return creds
+
+
+def _build_service(creds: Credentials) -> Any:
+    """Build a Gmail API service from credentials. Safe to call per-thread."""
     t = _http_timeout_seconds()
     authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=t))
     return build("gmail", "v1", http=authed_http, cache_discovery=False)
+
+
+def get_gmail_service() -> Any:
+    return _build_service(_get_credentials())
 
 
 def _is_from_me(from_header: str, my_email: str) -> bool:
@@ -535,7 +547,8 @@ def analyze_inbox(
     print(banner, flush=True)
 
     try:
-        service = get_gmail_service()
+        creds = _get_credentials()
+        service = _build_service(creds)
     except FileNotFoundError:
         print("Missing credentials.json - add Desktop OAuth client JSON from Google Cloud.", file=sys.stderr)
         return 1
@@ -566,18 +579,20 @@ def analyze_inbox(
 
     reply_name = os.environ.get("REPLY_NAME") or ""
     trusted = trusted_senders if trusted_senders is not None else _load_trusted_senders()
-    results: list[dict[str, Any]] = []
+    max_workers = int(os.environ.get("GMAIL_MAX_WORKERS", DEFAULT_MAX_WORKERS))
+    total = len(threads)
 
-    for i, thread in enumerate(threads, start=1):
+    def _worker(args: tuple[int, dict]) -> dict[str, Any]:
+        i, thread = args
         msgs = thread.get("messages") or []
         last_msg = sorted(msgs, key=lambda m: int(m.get("internalDate", "0")))[-1] if msgs else {}
         last_headers = (last_msg.get("payload") or {}).get("headers") or []
         subject = get_header(last_headers, "Subject")
         msg_count = len(msgs)
-        print(f"[{i}/{len(threads)}] Analyzing thread ({msg_count} msgs): {subject}", file=sys.stderr)
-
+        print(f"[{i}/{total}] Analyzing thread ({msg_count} msgs): {subject}", file=sys.stderr)
+        thread_service = _build_service(creds)
         entry = _analyze_single(
-            service,
+            thread_service,
             thread,
             my_email,
             create_draft=create_draft,
@@ -585,8 +600,11 @@ def analyze_inbox(
             reply_name=reply_name,
             trusted_senders=trusted,
         )
-        results.append(entry)
-        print(f"  -> {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
+        print(f"  -> [{i}/{total}] {entry['category']} / {entry['action']} -> {entry['result']}", file=sys.stderr)
+        return entry
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(_worker, enumerate(threads, start=1)))
 
     print(json.dumps(results, ensure_ascii=False, indent=2), flush=True)
     return 0
