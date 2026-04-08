@@ -370,6 +370,25 @@ def _dispatch_action(
         return "would archive as important" if account_notifier else "would archive"
 
     if action == "mark_read":
+        # Optional thanks draft for trusted FYI (see _analyze_single); same archive behavior as reply.
+        if create_draft and suggested_reply.strip():
+            draft_id, had_error = create_reply_draft(
+                service,
+                msg,
+                suggested_reply,
+                thread_message_ids=thread_message_ids,
+            )
+            if had_error:
+                return "draft failed"
+            ok = _sync()
+            if ok:
+                tail = (
+                    "archived as important (unread)"
+                    if account_notifier
+                    else "archived (unread)"
+                )
+                return f"draft created ({draft_id}) | {tail}"
+            return f"draft created ({draft_id}) | archive failed"
         # Archive out of Inbox but keep UNREAD — user reads on their own; avoids re-fetch loops.
         if apply:
             ok = _sync()
@@ -492,9 +511,15 @@ def _analyze_single(
         and action == "ignore"
         and not result.suspicious
     )
+    trusted_fyi_ack = (
+        trusted_sender
+        and category == "normal"
+        and action == "mark_read"
+        and not result.suspicious
+    )
     if action == "reply" and not result.suspicious:
         suggested_reply = compose_suggested_reply(parsed, reply_name)
-    elif trusted_thanks and create_draft:
+    elif (trusted_thanks or trusted_fyi_ack) and create_draft:
         thanks_text, thanks_err = generate_trusted_acknowledgment_reply(
             conversation_block, reply_name
         )
@@ -507,7 +532,7 @@ def _analyze_single(
             )
 
     effective_draft = create_draft and not result.suspicious and (
-        action == "reply" or trusted_thanks
+        action == "reply" or trusted_thanks or trusted_fyi_ack
     )
 
     action_result = _dispatch_action(
@@ -645,7 +670,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--draft",
         action="store_true",
-        help="Create Gmail draft replies for 'reply' (and trusted-sender spam thanks). Each successful draft removes the thread from INBOX (UNREAD kept).",
+        help="Create Gmail draft replies for 'reply', trusted-sender spam thanks, and trusted-sender normal FYI (mark_read). Each successful draft removes the thread from INBOX (UNREAD kept).",
     )
     parser.add_argument(
         "--apply",
