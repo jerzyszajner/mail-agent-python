@@ -277,10 +277,15 @@ def generate_trusted_acknowledgment_reply(
     reply_name: str,
 ) -> tuple[str | None, str | None]:
     """
-    One extra Gemini call for a trusted sender (spam/ignore): draft thanks/ack.
+    One extra Gemini call for a trusted sender: draft thanks/ack (spam/ignore or FYI mark_read).
 
-    Call only after ``analyze_email_block`` succeeded with ``suspicious=False`` — guard/regex already ran.
+    Typical callers already ran ``analyze_email_block`` on the same ``email_block``; that pass runs
+    injection heuristics plus a Gemini input guard and returns ``suspicious=True`` with no parsed JSON
+    when a prompt-injection attempt is detected — so no thanks draft is built in ``gmail_analyze``.
+    Heuristics are re-applied here (no extra API call) before the thanks-generation call.
     """
+    if detect_prompt_injection_signals(email_block):
+        return None, "refused: injection-like patterns in thread"
     parsed, err = _generate_and_validate(email_block, "", system_prompt=TRUSTED_ACK_PROMPT)
     if err:
         return None, err

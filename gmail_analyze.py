@@ -505,6 +505,7 @@ def _analyze_single(
     action = str(parsed.get("action") or "")
 
     suggested_reply = ""
+    # Trusted thanks/FYI drafts only if main analysis did not flag injection (no parsed path then).
     trusted_thanks = (
         trusted_sender
         and category == "spam"
