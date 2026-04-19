@@ -21,25 +21,7 @@ dependencies = [
 dev = ["pytest>=8.0.0"]
 
 [tool.setuptools]
-py-modules = [
-    "account_notifier",
-    "analysis",
-    "analysis_prompts",
-    "analysis_schema",
-    "analysis_text",
-    "draft_cleanup",
-    "drafts",
-    "gmail_actions",
-    "gmail_analyze",
-    "gmail_auth",
-    "gmail_client",
-    "inbox_dispatch",
-    "inbox_pipeline",
-    "inbox_thread",
-    "injection_detection",
-    "reply_text",
-    "trusted_senders",
-]
+packages = ["mail_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-import draft_cleanup
-from draft_cleanup import (
+import mail_agent.draft_cleanup as draft_cleanup
+from mail_agent.draft_cleanup import (
     _load_pending,
     _save_pending,
     cleanup_sent_agent_drafts,

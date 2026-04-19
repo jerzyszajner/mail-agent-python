@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from injection_detection import (
+from .injection_detection import (
     BASE64_TOKEN_RE,
     INJECTION_PATTERNS,
     SPLIT_INSTRUCTION_MARKERS,
@@ -16,7 +16,7 @@ from injection_detection import (
     _contains_typoglycemia_instruction,
     _normalize_for_detection,
 )
-from reply_text import (
+from .reply_text import (
     ECHO_SIMILARITY_THRESHOLD,
     compose_suggested_reply,
     _extract_source_body,

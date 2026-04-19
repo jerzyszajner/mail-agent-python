@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from analysis_text import (
+from mail_agent.analysis_text import (
     _looks_like_echo,
     _normalize_reply_text,
     compose_suggested_reply,

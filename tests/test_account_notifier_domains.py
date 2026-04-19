@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from account_notifier import sender_is_account_notifier
+from mail_agent.account_notifier import sender_is_account_notifier
 
 
 class TestAccountNotifierDomains(unittest.TestCase):

@@ -9,8 +9,8 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from draft_cleanup import register_agent_draft
-from gmail_client import get_header
+from .draft_cleanup import register_agent_draft
+from .gmail_client import get_header
 
 
 def _reply_subject(subject: str) -> str:

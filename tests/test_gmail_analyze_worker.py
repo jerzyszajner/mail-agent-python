@@ -20,21 +20,21 @@ _GMAIL_PATCHES = [
         "google_auth_oauthlib.flow": MagicMock(),
         "httplib2": MagicMock(),
         "dotenv": MagicMock(),
-        "account_notifier": MagicMock(),
-        "analysis": MagicMock(),
-        "draft_cleanup": MagicMock(),
-        "drafts": MagicMock(),
-        "gmail_actions": MagicMock(),
-        "gmail_client": MagicMock(),
+        "mail_agent.account_notifier": MagicMock(),
+        "mail_agent.analysis": MagicMock(),
+        "mail_agent.draft_cleanup": MagicMock(),
+        "mail_agent.drafts": MagicMock(),
+        "mail_agent.gmail_actions": MagicMock(),
+        "mail_agent.gmail_client": MagicMock(),
     })
 ]
 
 for p in _GMAIL_PATCHES:
     p.start()
 
-import gmail_auth  # noqa: E402
+import mail_agent.gmail_auth as gmail_auth  # noqa: E402
 import gmail_analyze  # noqa: E402
-import inbox_pipeline  # noqa: E402
+import mail_agent.inbox_pipeline as inbox_pipeline  # noqa: E402
 
 for p in _GMAIL_PATCHES:
     p.stop()

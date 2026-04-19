@@ -9,7 +9,7 @@ from __future__ import annotations
 import base64
 import unittest
 
-from analysis_text import (
+from mail_agent.analysis_text import (
     _contains_encoded_instruction,
     _contains_rot13_instruction,
     _contains_split_instruction,

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from googleapiclient.errors import HttpError
 
-from gmail_actions import archive, important_archive, report_spam
+from mail_agent.gmail_actions import archive, important_archive, report_spam
 
 
 def _make_service_mock(side_effect=None):

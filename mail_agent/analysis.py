@@ -17,7 +17,7 @@ from typing import Any, NamedTuple
 from google import genai
 from google.genai import types
 
-from analysis_prompts import (
+from .analysis_prompts import (
     ANALYZE_PROMPT,
     BLOCKED_ANALYSIS_MESSAGE,
     GUARD_PROMPT,
@@ -25,9 +25,9 @@ from analysis_prompts import (
     TRUSTED_ACK_PROMPT,
 )
 
-from analysis_schema import EMAIL_SCHEMA, validate_model_json
-from injection_detection import detect_prompt_injection_signals, looks_like_injection_output
-from reply_text import (
+from .analysis_schema import EMAIL_SCHEMA, validate_model_json
+from .injection_detection import detect_prompt_injection_signals, looks_like_injection_output
+from .reply_text import (
     _extract_source_body,
     _looks_like_echo,
     compose_suggested_reply,

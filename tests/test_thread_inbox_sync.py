@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from inbox_dispatch import sync_thread_out_of_inbox
+from mail_agent.inbox_dispatch import sync_thread_out_of_inbox
 
 
 class TestSyncThreadOutOfInbox(unittest.TestCase):

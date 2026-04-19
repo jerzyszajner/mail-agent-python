@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-import analysis
+import mail_agent.analysis as analysis
 
 
 class TestTrustedAckInjection(unittest.TestCase):

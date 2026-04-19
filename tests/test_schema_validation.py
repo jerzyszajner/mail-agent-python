@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from analysis_schema import MAX_CLOSING_LEN, MAX_GREETING_LEN, MAX_PARAGRAPH_LEN, validate_model_json
+from mail_agent.analysis_schema import MAX_CLOSING_LEN, MAX_GREETING_LEN, MAX_PARAGRAPH_LEN, validate_model_json
 
 
 def _valid_parsed() -> dict:

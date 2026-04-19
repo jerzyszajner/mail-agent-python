@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from account_notifier import sender_is_account_notifier
-from drafts import create_reply_draft
-from gmail_actions import archive, important_archive, report_spam
-from gmail_client import get_header
-from inbox_thread import extract_email
+from .account_notifier import sender_is_account_notifier
+from .drafts import create_reply_draft
+from .gmail_actions import archive, important_archive, report_spam
+from .gmail_client import get_header
+from .inbox_thread import extract_email
 
 
 def archive_thread_inbox_messages(service: Any, messages: list[dict]) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import unittest
 
-from gmail_client import decode_full_message_body, get_header
+from mail_agent.gmail_client import decode_full_message_body, get_header
 
 
 def _b64url(text: str) -> str:

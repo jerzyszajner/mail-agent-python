@@ -8,7 +8,7 @@ from typing import Any
 
 from googleapiclient.errors import HttpError
 
-from gmail_client import decode_full_message_body, get_header
+from .gmail_client import decode_full_message_body, get_header
 
 MAX_EMAIL_BODY_LEN = 32_000
 

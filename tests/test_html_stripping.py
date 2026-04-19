@@ -10,7 +10,7 @@ import unittest
 
 from unittest.mock import MagicMock
 
-from gmail_client import _strip_html, _style_attr_value
+from mail_agent.gmail_client import _strip_html, _style_attr_value
 
 
 class BasicStrippingTests(unittest.TestCase):

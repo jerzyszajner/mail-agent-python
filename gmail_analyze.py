@@ -13,12 +13,12 @@ from typing import Any
 from dotenv import load_dotenv
 from googleapiclient.errors import HttpError
 
-from draft_cleanup import cleanup_sent_agent_drafts
-from gmail_auth import build_gmail_service, get_credentials, get_gmail_service
-from gmail_client import get_header
-from inbox_pipeline import analyze_single_thread
-from inbox_thread import fetch_unread_threads
-from trusted_senders import load_trusted_senders
+from mail_agent.draft_cleanup import cleanup_sent_agent_drafts
+from mail_agent.gmail_auth import build_gmail_service, get_credentials, get_gmail_service
+from mail_agent.gmail_client import get_header
+from mail_agent.inbox_pipeline import analyze_single_thread
+from mail_agent.inbox_thread import fetch_unread_threads
+from mail_agent.trusted_senders import load_trusted_senders
 
 DEFAULT_MAX_RESULTS = 10
 DEFAULT_MAX_WORKERS = 5

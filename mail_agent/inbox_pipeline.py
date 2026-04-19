@@ -5,14 +5,14 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from analysis import (
+from .analysis import (
     analyze_email_block,
     compose_suggested_reply,
     generate_trusted_acknowledgment_reply,
 )
-from gmail_client import get_header
-from inbox_dispatch import archive_thread_inbox_messages, dispatch_thread_action
-from inbox_thread import extract_email, thread_to_email_text
+from .gmail_client import get_header
+from .inbox_dispatch import archive_thread_inbox_messages, dispatch_thread_action
+from .inbox_thread import extract_email, thread_to_email_text
 
 
 def analyze_single_thread(
