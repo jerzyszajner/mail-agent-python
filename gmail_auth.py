@@ -94,6 +94,11 @@ def get_credentials() -> Credentials:
             ) from exc
 
     if not creds or not creds.valid:
+        if not os.path.exists("credentials.json"):
+            raise RuntimeError(
+                "credentials.json not found. Download it from Google Cloud Console "
+                "(APIs & Services → Credentials) and place it in the project directory."
+            )
         if not sys.stdin.isatty():
             raise RuntimeError(
                 "Gmail login required but there is no interactive terminal; "
