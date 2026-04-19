@@ -43,9 +43,11 @@ def _save_credentials(creds: Credentials) -> None:
         "client_secret": creds.client_secret,
         "scopes": list(creds.scopes or []),
     }
-    fd = os.open("token.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = "token.json.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(data, f)
+    os.replace(tmp, "token.json")
 
 
 def _http_timeout_seconds() -> float:
