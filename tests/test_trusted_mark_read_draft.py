@@ -1,4 +1,4 @@
-"""Trusted sender + mark_read: optional thanks draft in _dispatch_action."""
+"""Trusted sender + mark_read: optional thanks draft in dispatch_thread_action."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ _GMAIL_PATCHES = [
 for _p in _GMAIL_PATCHES:
     _p.start()
 
-import gmail_analyze  # noqa: E402
+import inbox_dispatch  # noqa: E402
 
 for _p in _GMAIL_PATCHES:
     _p.stop()
@@ -43,10 +43,10 @@ class TestTrustedMarkReadDraft(unittest.TestCase):
         service = MagicMock()
         msg = {"id": "m1", "threadId": "t1", "payload": {"headers": []}}
 
-        with patch.object(gmail_analyze, "sender_is_account_notifier", return_value=False), patch.object(
-            gmail_analyze, "create_reply_draft", return_value=("draft-1", False)
-        ) as crd, patch.object(gmail_analyze, "_sync_thread_out_of_inbox", return_value=True) as sync:
-            out = gmail_analyze._dispatch_action(
+        with patch.object(inbox_dispatch, "sender_is_account_notifier", return_value=False), patch.object(
+            inbox_dispatch, "create_reply_draft", return_value=("draft-1", False)
+        ) as crd, patch.object(inbox_dispatch, "sync_thread_out_of_inbox", return_value=True) as sync:
+            out = inbox_dispatch.dispatch_thread_action(
                 service,
                 msg,
                 "mark_read",
@@ -65,10 +65,10 @@ class TestTrustedMarkReadDraft(unittest.TestCase):
         service = MagicMock()
         msg = {"id": "m1", "threadId": "t1", "payload": {"headers": []}}
 
-        with patch.object(gmail_analyze, "sender_is_account_notifier", return_value=False), patch.object(
-            gmail_analyze, "create_reply_draft"
-        ) as crd, patch.object(gmail_analyze, "_sync_thread_out_of_inbox", return_value=True):
-            out = gmail_analyze._dispatch_action(
+        with patch.object(inbox_dispatch, "sender_is_account_notifier", return_value=False), patch.object(
+            inbox_dispatch, "create_reply_draft"
+        ) as crd, patch.object(inbox_dispatch, "sync_thread_out_of_inbox", return_value=True):
+            out = inbox_dispatch.dispatch_thread_action(
                 service,
                 msg,
                 "mark_read",

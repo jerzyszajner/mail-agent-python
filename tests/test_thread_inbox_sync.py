@@ -1,11 +1,11 @@
-"""Thread-wide INBOX removal (_sync_thread_out_of_inbox)."""
+"""Thread-wide INBOX removal (sync_thread_out_of_inbox)."""
 
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock
 
-from gmail_analyze import _sync_thread_out_of_inbox
+from inbox_dispatch import sync_thread_out_of_inbox
 
 
 class TestSyncThreadOutOfInbox(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestSyncThreadOutOfInbox(unittest.TestCase):
                 ]
             },
         }
-        ok = _sync_thread_out_of_inbox(
+        ok = sync_thread_out_of_inbox(
             service, [m1, m2], category="normal", trusted_sender=False
         )
         self.assertTrue(ok)
@@ -61,7 +61,7 @@ class TestSyncThreadOutOfInbox(unittest.TestCase):
                 "headers": [{"name": "From", "value": "x <a@example.com>"}]
             },
         }
-        ok = _sync_thread_out_of_inbox(
+        ok = sync_thread_out_of_inbox(
             service, [m1, m2], category="normal", trusted_sender=False
         )
         self.assertTrue(ok)

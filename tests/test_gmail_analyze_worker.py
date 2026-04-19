@@ -32,7 +32,9 @@ _GMAIL_PATCHES = [
 for p in _GMAIL_PATCHES:
     p.start()
 
+import gmail_auth  # noqa: E402
 import gmail_analyze  # noqa: E402
+import inbox_pipeline  # noqa: E402
 
 for p in _GMAIL_PATCHES:
     p.stop()
@@ -66,8 +68,8 @@ def _run_worker(thread: dict, analyze_side_effect=None, analyze_return=None, tot
     mock_service._http.http = MagicMock()
     mock_service._http.http.connections = {"conn1": object()}
 
-    with patch.object(gmail_analyze, "_build_service", return_value=mock_service), \
-         patch.object(gmail_analyze, "_analyze_single",
+    with patch.object(gmail_auth, "build_gmail_service", return_value=mock_service), \
+         patch.object(inbox_pipeline, "analyze_single_thread",
                       side_effect=analyze_side_effect,
                       return_value=analyze_return), \
          patch.object(gmail_analyze, "get_header", return_value=thread.get("messages", [{}])[0]
@@ -83,8 +85,8 @@ def _run_worker(thread: dict, analyze_side_effect=None, analyze_return=None, tot
                 last_headers = (last_msg.get("payload") or {}).get("headers") or []
                 subject = gmail_analyze.get_header(last_headers, "Subject")
                 msg_count = len(msgs)
-                thread_service = gmail_analyze._build_service(creds)
-                entry = gmail_analyze._analyze_single(
+                thread_service = gmail_auth.build_gmail_service(creds)
+                entry = inbox_pipeline.analyze_single_thread(
                     thread_service, t, my_email,
                     create_draft=create_draft, apply=apply,
                     reply_name=reply_name, trusted_senders=trusted,
@@ -156,8 +158,8 @@ class TestWorkerExceptionHandling(unittest.TestCase):
                 raise RuntimeError("thread 2 failed")
             return {"thread_id": "ok", "category": "newsletter", "action": "archive", "result": "ok"}
 
-        with patch.object(gmail_analyze, "_build_service", return_value=mock_service), \
-             patch.object(gmail_analyze, "_analyze_single", side_effect=side_effect), \
+        with patch.object(gmail_auth, "build_gmail_service", return_value=mock_service), \
+             patch.object(inbox_pipeline, "analyze_single_thread", side_effect=side_effect), \
              patch.object(gmail_analyze, "get_header", return_value="subject"):
 
             total = len(threads)
@@ -169,8 +171,8 @@ class TestWorkerExceptionHandling(unittest.TestCase):
                 try:
                     msgs = t.get("messages") or []
                     subject = gmail_analyze.get_header([], "Subject")
-                    thread_service = gmail_analyze._build_service(creds)
-                    entry = gmail_analyze._analyze_single(
+                    thread_service = gmail_auth.build_gmail_service(creds)
+                    entry = inbox_pipeline.analyze_single_thread(
                         thread_service, t, my_email,
                         create_draft=False, apply=False,
                         reply_name="", trusted_senders=frozenset(),
@@ -221,8 +223,8 @@ class TestWorkerResourceCleanup(unittest.TestCase):
         creds = MagicMock()
         mock_service = MagicMock(spec=[])  # no attributes
 
-        with patch.object(gmail_analyze, "_build_service", return_value=mock_service), \
-             patch.object(gmail_analyze, "_analyze_single", side_effect=RuntimeError("crash")), \
+        with patch.object(gmail_auth, "build_gmail_service", return_value=mock_service), \
+             patch.object(inbox_pipeline, "analyze_single_thread", side_effect=RuntimeError("crash")), \
              patch.object(gmail_analyze, "get_header", return_value=""):
 
             def _worker(args):
@@ -230,8 +232,8 @@ class TestWorkerResourceCleanup(unittest.TestCase):
                 subject = ""
                 thread_service = None
                 try:
-                    thread_service = gmail_analyze._build_service(creds)
-                    return gmail_analyze._analyze_single(thread_service, t, "me@x.com",
+                    thread_service = gmail_auth.build_gmail_service(creds)
+                    return inbox_pipeline.analyze_single_thread(thread_service, t, "me@x.com",
                                                          create_draft=False, apply=False,
                                                          reply_name="", trusted_senders=frozenset())
                 except Exception as exc:
