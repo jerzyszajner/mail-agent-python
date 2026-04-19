@@ -1,4 +1,4 @@
-"""Tests for reply composition and anti-echo logic (analysis_text.py).
+"""Tests for reply composition and anti-echo (reply_text.py; re-exported via analysis_text).
 
 Covers: compose_suggested_reply, _normalize_reply_text, _looks_like_echo.
 """

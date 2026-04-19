@@ -1,4 +1,4 @@
-"""Tests for prompt injection detection layer (analysis_text.py).
+"""Tests for prompt injection detection (injection_detection.py; re-exported via analysis_text).
 
 Covers: regex patterns, Unicode confusables, ROT13, base64 encoding,
 typoglycemia, split instruction markers, and false-positive resilience.

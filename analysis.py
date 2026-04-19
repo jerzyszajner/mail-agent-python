@@ -26,12 +26,11 @@ from analysis_prompts import (
 )
 
 from analysis_schema import EMAIL_SCHEMA, validate_model_json
-from analysis_text import (
+from injection_detection import detect_prompt_injection_signals, looks_like_injection_output
+from reply_text import (
     _extract_source_body,
     _looks_like_echo,
     compose_suggested_reply,
-    detect_prompt_injection_signals,
-    looks_like_injection_output,
 )
 
 logger = logging.getLogger(__name__)
