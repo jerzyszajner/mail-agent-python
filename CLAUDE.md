@@ -49,12 +49,15 @@ Each thread goes through `analyze_email_block()`:
 
 If the guard fires, the thread is archived out of INBOX and no draft is created.
 
-### Validation Pipeline (analysis_schema.py + analysis_text.py)
+### Validation Pipeline (analysis_schema.py + injection_detection.py + reply_text.py)
 
 After Gemini output, three validation layers run:
 - **Schema validation** (`analysis_schema.py`): enforces enum values, field types, length limits
-- **Output injection detection** (`analysis_text.py`): detects echo replies, confusable Unicode chars, base64/ROT13 encoding, zero-width chars, typoglycemia
+- **Output injection detection** (`injection_detection.py`): confusable Unicode chars, base64/ROT13 encoding, zero-width chars, typoglycemia, pattern heuristics
+- **Anti-echo** (`reply_text.py`): compares composed reply text to sender body so the model is not echoing untrusted content
 - **Placeholder check**: rejects output containing `[...]` bracket placeholders
+
+`analysis_text.py` re-exports the above for tests; new code should import from `injection_detection` / `reply_text` (see `analysis.py`).
 
 ### Gmail Modules
 
