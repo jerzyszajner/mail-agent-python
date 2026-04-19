@@ -33,10 +33,12 @@ A CLI email triage agent that fetches unread Gmail threads, classifies them with
 **`gmail_analyze.py`** is the sole entry point. It:
 1. Parses CLI args (`--max`, `--draft`, `--apply`)
 2. Loads `.env` (`GEMINI_API_KEY`, `REPLY_NAME`) and `credentials.json`
-3. Performs OAuth (caches token in `token.json`)
+3. Uses **`gmail_auth.py`** for OAuth (token in `token.json`) and building the Gmail API client
 4. Calls `cleanup_sent_agent_drafts()` to delete stale agent drafts
-5. Fetches up to N unread threads, runs `_analyze_single()` on each
+5. Fetches up to N unread threads via **`inbox_thread.py`**, runs **`inbox_pipeline.analyze_single_thread()`** on each (parallel workers)
 6. Outputs a JSON array to stdout
+
+Supporting modules: **`trusted_senders.py`** (allowlist file), **`inbox_dispatch.py`** (Gmail labels + drafts after classification).
 
 ### Two-Stage Gemini Pipeline (analysis.py)
 

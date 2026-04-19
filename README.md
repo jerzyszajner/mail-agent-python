@@ -85,7 +85,7 @@ If you previously used `com.jerzy.mail-agent`, unload it once: `launchctl bootou
 
 ## Code map
 
-`gmail_analyze.py` — CLI, Gmail, dispatch. `analysis*.py` — Gemini, validation, guard. `drafts.py` / `draft_cleanup.py` — drafts and post-send cleanup. `gmail_actions.py` — labels (archive, spam).
+`gmail_analyze.py` — CLI and batch orchestration. `gmail_auth.py` — OAuth + Gmail API service. `inbox_thread.py` — fetch threads, build conversation text. `inbox_pipeline.py` — Gemini per thread. `inbox_dispatch.py` — labels and drafts after classification. `trusted_senders.txt` via `trusted_senders.py`. `analysis*.py` — Gemini, validation, guard. `drafts.py` / `draft_cleanup.py` — drafts and post-send cleanup. `gmail_actions.py` — labels (archive, spam).
 
 ## Tests
 
